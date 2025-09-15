@@ -1,0 +1,78 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# VS Code settings
+.vscode/
+
+# Python virtual environments
+.env/
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs and outputs
+*.log
+*.out
+*.err
+
+# Data and model files
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+*.csv
+*.tsv
+*.npz
+*.npy
+*.joblib
+
+# Large files and results
+results/
+output/
+outputs/
+runs/
+checkpoints/
+models/
+*.pt
+*.pth
+
+# Environment and dependency files
+pip-wheel-metadata/
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebook metadata
+*.nbconvert.ipynb
+
+# Temporary files
+*.bak
+*.swp
+*.tmp
+
+# Ignore secrets and API keys
+*.env
+.env.*
+
+# Ignore images generated during experiments
+*.png
+*.jpg
+*.jpeg
+*.svg
+
+# Ignore user-specific config
+*.user
+*.sublime-workspace
+*.sublime-project
