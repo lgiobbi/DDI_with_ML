@@ -24,13 +24,6 @@ def is_valid_molecule(smiles) -> bool:
     except Exception:
         return False
 
-def get_valid_smiles(drugID_smiles):
-    valid_smiles = pd.DataFrame(drugID_smiles)
-    valid_smiles['IsValidMolecule'] = drugID_smiles['SMILES'].apply(is_valid_molecule)
-    df_valid_molecules = valid_smiles[valid_smiles['IsValidMolecule']]
-    return df_valid_molecules.drop(columns=['IsValidMolecule'])
-
-
 # Flexible DDI_graph filtering: filter by 'smiles' or 'desc'
 def filter_ddi_graph(DDI_graph, allowed_df, filter_type):
     if filter_type == 'smiles':
@@ -40,12 +33,6 @@ def filter_ddi_graph(DDI_graph, allowed_df, filter_type):
     else:
         raise ValueError("filter_type must be 'smiles' or 'desc'")
     return DDI_graph[DDI_graph['src'].isin(allowed_drug) & DDI_graph['dst'].isin(allowed_drug)].reset_index(drop=True)
-
-def get_ddi_drug_info(drugID_smiles, drugID_DESC, DDI_graph):
-    unique_ids = list(np.unique(DDI_graph.values))
-    drugID_smiles_ddi = drugID_smiles[drugID_smiles['DrugBank ID'].isin(unique_ids)].reset_index(drop=True)
-    drugID_DESC_ddi = drugID_DESC[drugID_DESC['Drug ID'].isin(unique_ids)].reset_index(drop=True)
-    return drugID_smiles_ddi, drugID_DESC_ddi
 
 def PyG_data(feature, DDI_graph):
     DrugIDs_in_graph = np.unique(DDI_graph.values)
@@ -130,104 +117,77 @@ def no_feature(smiles, DDI_graph):
 def lmbda(epoch):
     return 0.96
 
-def run_training(Embedding_models, transform, device, lmbda, epochs=100, patience=10, LR=[0.0003]):
-    modelnames = [name for name in Embedding_models.keys()]
-    AUC = pd.DataFrame({'Embedding': modelnames})
-    PR = pd.DataFrame({'Embedding': modelnames})
 
-    for lr in LR:
-        print('-------------------------------')
-        print(f'=====Learning Rate: {lr} =======')
-        print('-------------------------------')
-        results_AUC = []
-        results_PR = []
-        for modelname, emb in Embedding_models.items():
-            print('-------------------------------')
-            print(f'========= {modelname} =========')
-            print('-------------------------------')
-            data = PyG_data(emb[0], emb[1])
-            train_data, val_data, test_data = transform(data)
-            model = Net(data.num_features, 256, 256).to(device)
-            optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
-            scheduler = MultiplicativeLR(optimizer, lr_lambda=lmbda)
-            criterion = torch.nn.BCEWithLogitsLoss()
+# Train a single model and return model, train/val/test data, and metrics
+def run_training(emb, transform, device, lmbda, epochs=100, patience=10, lr=0.0003):
+    print('-------------------------------')
+    print(f'Training with LR: {lr}')
+    data = PyG_data(emb[0], emb[1])
+    train_data, val_data, test_data = transform(data)
+    model = Net(data.num_features, 256, 256).to(device)
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
+    scheduler = MultiplicativeLR(optimizer, lr_lambda=lmbda)
+    criterion = torch.nn.BCEWithLogitsLoss()
 
-            struct_neg_tup = structured_negative_sampling(
-                edge_index=train_data.edge_index,
-                num_nodes=train_data.num_nodes,
-                contains_neg_self_loops=False
-            )
-            neg_edge_index = torch.stack((struct_neg_tup[0], struct_neg_tup[2]), dim=0)
-            neg_edge_index, _ = torch.unique(neg_edge_index, dim=1, return_inverse=True)
+    struct_neg_tup = structured_negative_sampling(
+        edge_index=train_data.edge_index,
+        num_nodes=train_data.num_nodes,
+        contains_neg_self_loops=False
+    )
+    neg_edge_index = torch.stack((struct_neg_tup[0], struct_neg_tup[2]), dim=0)
+    neg_edge_index, _ = torch.unique(neg_edge_index, dim=1, return_inverse=True)
 
-            edge_label_index = torch.cat(
-                [train_data.edge_label_index, neg_edge_index],
-                dim=-1,
-            )
-            edge_label = torch.cat([
-                train_data.edge_label,
-                train_data.edge_label.new_zeros(neg_edge_index.size(1))
-            ], dim=0)
+    edge_label_index = torch.cat(
+        [train_data.edge_label_index, neg_edge_index],
+        dim=-1,
+    )
+    edge_label = torch.cat([
+        train_data.edge_label,
+        train_data.edge_label.new_zeros(neg_edge_index.size(1))
+    ], dim=0)
 
-            best_val_auc = final_test_auc = 0
+    best_val_auc = final_test_auc = 0
+    wait = 0
+    best_model_state = None
+    for epoch in range(1, epochs):
+        loss = train(model, optimizer, criterion, scheduler, train_data, edge_label_index, edge_label)
+        val_auc, _, _ = test(model, val_data)
+        test_auc, label, score = test(model, test_data)
+        if val_auc > best_val_auc:
+            best_val_auc = val_auc
+            final_test_auc = test_auc
+            best_scores = score
             wait = 0
-            best_model_state = None
-            for epoch in range(1, epochs):
-                loss = train(model, optimizer, criterion, scheduler, train_data, edge_label_index, edge_label)
-                val_auc, _, _ = test(model, val_data)
-                test_auc, label, score = test(model, test_data)
-                if val_auc > best_val_auc:
-                    best_val_auc = val_auc
-                    final_test_auc = test_auc
-                    best_scores = score
-                    wait = 0
-                    best_model_state = model.state_dict()
-                else:
-                    wait += 1
-                print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Val: {val_auc:.4f}')
-                if wait >= patience:
-                    print(f"Early stopping at epoch {epoch}")
-                    break
+            best_model_state = model.state_dict()
+        else:
+            wait += 1
+        print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Val: {val_auc:.4f}')
+        if wait >= patience:
+            print(f"Early stopping at epoch {epoch}")
+            break
 
-            if best_model_state is not None:
-                model.load_state_dict(best_model_state)
+    if best_model_state is not None:
+        model.load_state_dict(best_model_state)
 
-            precision, recall, _ = precision_recall_curve(label, best_scores)
-            pr = auc(recall, precision)
-            results_AUC.append({"Embedding": emb, "AUC": final_test_auc})
-            results_PR.append({"Embedding": emb, "PR_AUC": pr})
+    precision, recall, _ = precision_recall_curve(label, best_scores)
+    pr = auc(recall, precision)
+    metrics = {"AUC": final_test_auc, "PR_AUC": pr}
+    return model, data, metrics
 
-        AUC[str(lr)] = [r["AUC"] for r in results_AUC]
-        PR[str(lr)] = [r["PR_AUC"] for r in results_PR]
 
-    desired_order = ['Embedding'] + [str(lr) for lr in LR]
-    AUC = AUC[desired_order]
-    PR = PR[desired_order]
-    return AUC, PR
 
 def main():
     # Data loading
     DDI_graph = pd.read_csv('https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv', sep='\t')
     DDI_graph.rename(columns={'Drug1': 'src', 'Drug2': 'dst'}, inplace=True)
-    #drugsSMILES = pd.read_csv('https://raw.githubusercontent.com/sshaghayeghs/molSMILES/main/structure%20links%202.csv')
-    #drugID_smiles = drugsSMILES[["DrugBank ID", "SMILES"]]
-    #drugID_smiles.dropna(inplace=True)
-    #drugID_smiles.reset_index(drop=True, inplace=True)
+
     drugsDESC = pd.read_csv('https://raw.githubusercontent.com/sshaghayeghs/molSMILES/main/Drug_description.csv')
-    drugID_DESC = drugsDESC[["Drug ID", "Discription"]]
-    drugID_DESC.dropna(inplace=True)
-    drugID_DESC.reset_index(drop=True, inplace=True)
+    drugID_DESC = drugsDESC[["Drug ID", "Discription"]].dropna().reset_index(drop=True)
 
-    #df_valid_molecules = get_valid_smiles(drugID_smiles)
-
-    # Example: filter by SMILES first, then by description
-    #DDI_graph = filter_ddi_graph(DDI_graph, df_valid_molecules, 'smiles')
-    #DDI_graph = filter_ddi_graph(DDI_graph, drugID_DESC, 'desc')
-
-
-    #drugID_smiles_ddi, drugID_DESC_ddi = get_ddi_drug_info(drugID_smiles, drugID_DESC, DDI_graph)
-
-    #allowed_drug = list(df_valid_molecules['DrugBank ID']) + list(drugID_DESC['Drug ID'])
+    # Align drugID_DESC and DDI_graph
+    drugs_in_graph = set(DDI_graph['src']).union(set(DDI_graph['dst']))
+    drugID_DESC = drugID_DESC[drugID_DESC['Drug ID'].isin(drugs_in_graph)].reset_index(drop=True)
+    DDI_graph = DDI_graph[DDI_graph['src'].isin(drugID_DESC['Drug ID']) & DDI_graph['dst'].isin(drugID_DESC['Drug ID'])].reset_index(drop=True)
 
     allowed_drug = list(drugID_DESC['Drug ID'])
     Embedding_models = {
@@ -245,9 +205,16 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     epochs = 100
     LR = [0.0003]
-    AUC, PR = run_training(Embedding_models, transform, device, lmbda, epochs=epochs, LR=LR)
-    print(AUC)
-    print(PR)
+
+    results = {}
+    for modelname, emb in Embedding_models.items():
+        for lr in LR:
+            print(f'======== {modelname} | LR: {lr} ========')
+            model, data, metrics = run_training(emb, transform, device, lmbda, epochs=epochs, lr=lr)
+            results[(modelname, lr)] = {'model': model, 'data': data, 'metrics': metrics}
+
+    for key, value in results.items():
+        print(f"Model: {key[0]}, LR: {key[1]}, Metrics: {value['metrics']}")
 
 if __name__ == "__main__":
     main()
