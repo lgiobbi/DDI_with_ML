@@ -192,11 +192,3 @@ def main():
 if __name__ == "__main__":
     main()
 
-def get_node_embeddings(model, data):
-    model.eval()
-    with torch.no_grad():
-        node_embeddings = model.encode(data.x, data.edge_index)
-    node_embeddings = node_embeddings.cpu().numpy()
-    return node_embeddings
-
-
