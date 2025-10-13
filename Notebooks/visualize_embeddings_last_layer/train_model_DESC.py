@@ -1,7 +1,6 @@
 # %%
 import pandas as pd
 import numpy as np
-from rdkit import Chem
 
 import torch
 import torch.nn.functional as F
@@ -14,25 +13,6 @@ from sklearn.metrics import roc_auc_score, auc, precision_recall_curve
 import warnings
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
-
-# Utility Functions
-def is_valid_molecule(smiles) -> bool:
-    """Check if a SMILES string corresponds to a valid molecule."""
-    try:
-        mol = Chem.MolFromSmiles(smiles)
-        return mol is not None
-    except Exception:
-        return False
-
-# Flexible DDI_graph filtering: filter by 'smiles' or 'desc'
-def filter_ddi_graph(DDI_graph, allowed_df, filter_type):
-    if filter_type == 'smiles':
-        allowed_drug = set(allowed_df['DrugBank ID'])
-    elif filter_type == 'desc':
-        allowed_drug = set(allowed_df['Drug ID'])
-    else:
-        raise ValueError("filter_type must be 'smiles' or 'desc'")
-    return DDI_graph[DDI_graph['src'].isin(allowed_drug) & DDI_graph['dst'].isin(allowed_drug)].reset_index(drop=True)
 
 def PyG_data(feature, DDI_graph):
     DrugIDs_in_graph = np.unique(DDI_graph.values)
@@ -48,7 +28,7 @@ def PyG_data(feature, DDI_graph):
     data = Data(x=feature, edge_index=torch.tensor(edge_index).t().contiguous())
     return data
 
-def LM(DDI_graph, allowed_drug, model_name, dir, sep):
+def LM(DDI_graph, allowed_drug, dir, sep='\t'):
     Drug = pd.read_csv(dir, sep=sep, index_col=0)
     if 'Unnamed: 0' in Drug.columns:
         Drug.drop(columns='Unnamed: 0', inplace=True)
@@ -57,7 +37,6 @@ def LM(DDI_graph, allowed_drug, model_name, dir, sep):
         features = df.drop(df.columns[[0, 1, 2]], axis=1)
     else:
         features = df.drop(df.columns[[0, 1]], axis=1)
-    print(model_name)
     return features.values, DDI_graph
 
 class Net(torch.nn.Module):
@@ -175,26 +154,13 @@ def run_training(emb, transform, device, lmbda, epochs=100, patience=10, lr=0.00
     return model, data, metrics
 
 
-
 def main():
+    models = {'GPT+Desc': '/data/giobbi/embeddings/Dr_Desc_GPT.csv'}    
+
     # Data loading
     DDI_graph = pd.read_csv('https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv', sep='\t')
     DDI_graph.rename(columns={'Drug1': 'src', 'Drug2': 'dst'}, inplace=True)
-
-    drugsDESC = pd.read_csv('https://raw.githubusercontent.com/sshaghayeghs/molSMILES/main/Drug_description.csv')
-    drugID_DESC = drugsDESC[["Drug ID", "Discription"]].dropna().reset_index(drop=True)
-
-    # Align drugID_DESC and DDI_graph
-    drugs_in_graph = set(DDI_graph['src']).union(set(DDI_graph['dst']))
-    drugID_DESC = drugID_DESC[drugID_DESC['Drug ID'].isin(drugs_in_graph)].reset_index(drop=True)
-    DDI_graph = DDI_graph[DDI_graph['src'].isin(drugID_DESC['Drug ID']) & DDI_graph['dst'].isin(drugID_DESC['Drug ID'])].reset_index(drop=True)
-
-    allowed_drug = list(drugID_DESC['Drug ID'])
-    Embedding_models = {
-        'GPTDesc': LM(DDI_graph, allowed_drug, 'GPT+Desc', '/data/giobbi/embeddings/Dr_Desc_GPT.csv', '\t'),
-        # Add other models as needed
-    }
-
+    
     transform = RandomLinkSplit(
         num_val=0.2,
         num_test=0.2,
@@ -207,16 +173,30 @@ def main():
     LR = [0.0003]
 
     results = {}
-    for modelname, emb in Embedding_models.items():
+    for modelname, dir in models.items():
+        current_graph = DDI_graph
+
+        drugID_DESC = pd.read_csv(dir, sep='\t', index_col=0)
+        allowed_drug = list(drugID_DESC['Drug ID'])
+
+        emb = LM(current_graph, allowed_drug, dir)
+
         for lr in LR:
             print(f'======== {modelname} | LR: {lr} ========')
             model, data, metrics = run_training(emb, transform, device, lmbda, epochs=epochs, lr=lr)
             results[(modelname, lr)] = {'model': model, 'data': data, 'metrics': metrics}
-
+    
     for key, value in results.items():
         print(f"Model: {key[0]}, LR: {key[1]}, Metrics: {value['metrics']}")
 
 if __name__ == "__main__":
     main()
+
+def get_node_embeddings(model, data):
+    model.eval()
+    with torch.no_grad():
+        node_embeddings = model.encode(data.x, data.edge_index)
+    node_embeddings = node_embeddings.cpu().numpy()
+    return node_embeddings
 
 
