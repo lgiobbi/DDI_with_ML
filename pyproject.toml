@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "DDI_with_ML"
+version = "0.0.1"
+description = "Predicting drug-drug interactions using machine learning"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [ { name = "lgiobbi" } ]
+license = { text = "MIT" }
+
+[project.urls]
+"Repository" = "https://github.com/lgiobbi/DDI_with_ML"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["ddi_graph_neural_network*"]
+
+[tool.setuptools]
+include-package-data = true
