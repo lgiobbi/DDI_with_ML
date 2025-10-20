@@ -1,6 +1,6 @@
 # %%
-from typing import Callable, List, Tuple
 import warnings
+from typing import Callable, Tuple
 
 import numpy as np
 import pandas as pd
@@ -16,6 +16,8 @@ from torch_geometric.utils import structured_negative_sampling
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 LR_LAMBDA = 0.96
+GRAPH_URL = "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv"
+FEAUTURES = {"GPT+Desc": "/data/giobbi/embeddings/Dr_Desc_GPT.csv"}
 
 
 def PyG_data(feature: np.ndarray, DDI_graph: pd.DataFrame, node_id_map: dict) -> Data:
@@ -198,24 +200,56 @@ def test(model: Net, data: Data) -> Tuple[float, np.ndarray, np.ndarray]:
     return roc, label, score
 
 
-def no_feature(
-    smiles: List[str], DDI_graph: pd.DataFrame
-) -> Tuple[np.ndarray, pd.DataFrame]:
-    """Generate features for the given SMILES strings and DDI graph.
+def prepare_labels(
+    edge_index: torch.Tensor, num_nodes: int
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Prepare positive and negative edge labels for training.
 
     Args:
-        smiles (List[str]): List of SMILES strings.
-        DDI_graph (pd.DataFrame): DataFrame representing the DDI graph.
+        edge_index (torch.Tensor): Edge indices of the graph.
+        num_nodes (int): Number of nodes in the graph.
 
     Returns:
-        Tuple[np.ndarray, pd.DataFrame]: A tuple containing the generated features and the original DDI graph.
+        Tuple[torch.Tensor, torch.Tensor]: Edge label indices and corresponding labels.
     """
-    features = np.ones((len(smiles), 100))
-    print("no_feature")
-    return features, DDI_graph
+    struct_neg_tup = structured_negative_sampling(
+        edge_index=edge_index,
+        num_nodes=num_nodes,
+        contains_neg_self_loops=False,
+    )
+    neg_edge_index = torch.stack((struct_neg_tup[0], struct_neg_tup[2]), dim=0)
+    neg_edge_index, _ = torch.unique(neg_edge_index, dim=1, return_inverse=True)
+
+    edge_label_index = torch.cat(
+        [edge_index, neg_edge_index],
+        dim=-1,
+    )
+    edge_label = torch.cat(
+        [
+            torch.ones(edge_index.size(1)),
+            torch.zeros(neg_edge_index.size(1)),
+        ],
+        dim=0,
+    )
+    return edge_label_index, edge_label
 
 
-# Train a single model and return model, train/val/test data, and metrics
+def get_metrics(label: np.ndarray, scores: np.ndarray) -> dict:
+    """Calculate evaluation metrics based on true labels and predicted scores.
+
+    Args:
+        label (np.ndarray): True labels.
+        scores (np.ndarray): Predicted scores.
+
+    Returns:
+        dict: A dictionary containing AUC and PR_AUC metrics.
+    """
+    auc_score = roc_auc_score(label, scores)
+    precision, recall, _ = precision_recall_curve(label, scores)
+    pr_auc = auc(recall, precision)
+    return {"AUC": auc_score, "PR_AUC": pr_auc}
+
+
 def run_training(
     data: Data,
     transform: Callable[[Data], Tuple[Data, Data, Data]],
@@ -223,7 +257,7 @@ def run_training(
     epochs: int = 100,
     patience: int = 10,
     lr: float = 0.0003,
-) -> Tuple[Net, dict]:
+) -> Tuple[Net, np.ndarray, np.ndarray]:
     """Train a GNN model on the provided data.
 
     Args:
@@ -235,7 +269,7 @@ def run_training(
         lr (float, optional): The learning rate for the optimizer. Defaults to 0.0003.
 
     Returns:
-        Tuple[Net, dict]: The trained GNN model and a dictionary of metrics.
+        Tuple[Net, np.ndarray, np.ndarray]: The trained GNN model and the corresponding labels and scores.
     """
     print("-------------------------------")
     print(f"Training with LR: {lr}")
@@ -245,28 +279,13 @@ def run_training(
     scheduler = MultiplicativeLR(optimizer, lr_lambda=lambda epoch: LR_LAMBDA)
     criterion = torch.nn.BCEWithLogitsLoss()
 
-    struct_neg_tup = structured_negative_sampling(
+    edge_label_index, edge_label = prepare_labels(
         edge_index=train_data.edge_index,
         num_nodes=train_data.num_nodes,
-        contains_neg_self_loops=False,
-    )
-    neg_edge_index = torch.stack((struct_neg_tup[0], struct_neg_tup[2]), dim=0)
-    neg_edge_index, _ = torch.unique(neg_edge_index, dim=1, return_inverse=True)
-
-    edge_label_index = torch.cat(
-        [train_data.edge_label_index, neg_edge_index],
-        dim=-1,
-    )
-    edge_label = torch.cat(
-        [
-            train_data.edge_label,
-            train_data.edge_label.new_zeros(neg_edge_index.size(1)),
-        ],
-        dim=0,
     )
 
-    best_val_auc = final_test_auc = 0
-    wait = 0
+    best_val_auc: float = 0.0
+    wait: int = 0
     best_model_state = None
     for epoch in range(1, epochs):
         loss = train(
@@ -279,11 +298,10 @@ def run_training(
             edge_label,
         )
         val_auc, _, _ = test(model, val_data)
-        test_auc, label, score = test(model, test_data)
+        _, test_label, test_score = test(model, test_data)
         if val_auc > best_val_auc:
             best_val_auc = val_auc
-            final_test_auc = test_auc
-            best_scores = score
+            best_test_scores = test_score
             wait = 0
             best_model_state = model.state_dict()
         else:
@@ -296,10 +314,7 @@ def run_training(
     if best_model_state is not None:
         model.load_state_dict(best_model_state)
 
-    precision, recall, _ = precision_recall_curve(label, best_scores)
-    pr = auc(recall, precision)
-    metrics = {"AUC": final_test_auc, "PR_AUC": pr}
-    return model, metrics
+    return model, test_label, best_test_scores
 
 
 def main():
@@ -308,11 +323,8 @@ def main():
     Returns:
         dict: A dictionary containing the results of the training.
     """
-    models = {"GPT+Desc": "/data/giobbi/embeddings/Dr_Desc_GPT.csv"}
-
-    # Data loading
     DDI_graph = pd.read_csv(
-        "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv",
+        GRAPH_URL,
         sep="\t",
     ).rename(columns={"Drug1": "src", "Drug2": "dst"})
 
@@ -329,7 +341,7 @@ def main():
 
     results = {}
     node_id_map = get_node_id_map(DDI_graph)
-    for modelname, dir in models.items():
+    for modelname, dir in FEAUTURES.items():
         emb = pd.read_csv(dir, sep="\t", index_col=0)
         emb = emb.select_dtypes(include=["float"])
 
@@ -338,9 +350,11 @@ def main():
         for lr in LR:
             print(f"======== {modelname} | LR: {lr} ========")
 
-            model, metrics = run_training(
+            model, label, best_scores = run_training(
                 graph_with_emb, transform, device, epochs=epochs, lr=lr
             )
+            metrics = get_metrics(label, best_scores)
+
             results[(modelname, lr)] = {
                 "model": model,
                 "data": graph_with_emb,
