@@ -15,31 +15,11 @@ from torch_geometric.utils import structured_negative_sampling
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-LR_LAMBDA = 0.96
+LR_LAMBDA = 0.99
 GRAPH_URL = "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv"
 FEAUTURES = {"GPT+Desc": "/data/giobbi/embeddings/Dr_Desc_GPT.csv"}
 
 
-def PyG_data(feature: np.ndarray, DDI_graph: pd.DataFrame, node_id_map: dict) -> Data:
-    """Prepare the PyTorch Geometric data object.
-
-    Args:
-        feature (np.ndarray): Node features.
-        DDI_graph (pd.DataFrame): Drug-drug interaction graph.
-        node_id_map (dict): Mapping from drug IDs to node indices.
-
-    Returns:
-        Data: PyTorch Geometric data object.
-    """
-
-    DDI_graph = DDI_graph.map(lambda id: map_node_id(node_id_map, id)).to_numpy()
-    DDI_graph = np.vstack((DDI_graph, DDI_graph[:, ::-1]))  # Make bidirectional
-
-    data = Data(
-        x=torch.tensor(feature, dtype=torch.float32),
-        edge_index=torch.tensor(DDI_graph).t().contiguous(),
-    )
-    return data
 
 
 def get_node_id_map(DDI_graph: pd.DataFrame) -> dict:
@@ -316,6 +296,56 @@ def run_training(
 
     return model, test_label, best_test_scores
 
+def align_embedding_and_graph(DDI_graph, emb):
+    """Align drug embeddings with the DDI graph.
+
+    Args:
+        DDI_graph (pd.DataFrame): The drug-drug interaction graph.
+        emb (pd.DataFrame): The drug embeddings.
+
+    Returns:
+        Tuple[pd.DataFrame, pd.DataFrame, dict]: The aligned DDI graph, embeddings, and node ID mapping.
+    """
+    DDI_graph = DDI_graph[
+                    DDI_graph['src'].isin(emb['Drug ID']) &
+                    DDI_graph['dst'].isin(emb['Drug ID'])
+                ].reset_index(drop=True)
+    
+    DrugIDs_in_graph = np.unique(DDI_graph.values)
+
+    emb = emb[emb['Drug ID'].isin(DrugIDs_in_graph)]
+
+    # Create a mapping from drug IDs to node indices
+    node_id_map = {drug_id: i for i, drug_id in enumerate(DrugIDs_in_graph)}
+
+    # Align embeddings to node_id_map order
+    emb = emb.set_index('Drug ID')
+    emb = emb.reindex(DrugIDs_in_graph)
+
+    if (len(np.unique(DDI_graph.values)) != len(emb)):
+        print("Mismatch in number of drugs between graph and embeddings!")
+
+    return DDI_graph, emb, node_id_map
+
+def process_graph_and_embeddings(DDI_graph: pd.DataFrame, emb: pd.DataFrame, node_id_map: dict) -> Tuple[torch.Tensor, torch.Tensor]:
+    """Process the DDI graph and embeddings to prepare edge indices.
+
+    Args:
+        DDI_graph (pd.DataFrame): The drug-drug interaction graph.
+        emb (pd.DataFrame): The drug embeddings.
+
+    Returns:
+        Tuple[torch.Tensor, torch.Tensor]: The processed edge index and node features.
+    """
+    emb = emb.select_dtypes(include=["float"])
+
+    # Map drug IDs in the graph to integer indices
+    DDI_graph = DDI_graph.map(lambda id: map_node_id(node_id_map, id)).to_numpy()
+    DDI_graph = np.vstack((DDI_graph, DDI_graph[:, ::-1]))  # Make bidirectional
+
+    edge_index = torch.tensor(DDI_graph).t().contiguous()
+    features = torch.tensor(emb.values, dtype=torch.float32)
+    return features, edge_index
 
 def main():
     """Train and evaluate GNN models on DDI data.
@@ -335,29 +365,34 @@ def main():
         add_negative_train_samples=False,
         neg_sampling_ratio=1.0,
     )
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epochs = 100
     LR = [0.0003]
 
     results = {}
-    node_id_map = get_node_id_map(DDI_graph)
-    for modelname, dir in FEAUTURES.items():
-        emb = pd.read_csv(dir, sep="\t", index_col=0)
-        emb = emb.select_dtypes(include=["float"])
+    for modelname, directory in FEAUTURES.items():
+        emb = pd.read_csv(directory, sep="\t", index_col=0).dropna()
 
-        graph_with_emb = PyG_data(emb.values, DDI_graph, node_id_map)
+        DDI_graph_adj, emb, node_id_map = align_embedding_and_graph(DDI_graph.copy(), emb)
+        features, edge_index  = process_graph_and_embeddings(DDI_graph_adj, emb, node_id_map)
+
+        graph_data = Data(
+            x=features,
+            edge_index=edge_index,
+        )
 
         for lr in LR:
             print(f"======== {modelname} | LR: {lr} ========")
 
             model, label, best_scores = run_training(
-                graph_with_emb, transform, device, epochs=epochs, lr=lr
+                graph_data, transform, device, epochs=epochs, lr=lr
             )
             metrics = get_metrics(label, best_scores)
 
             results[(modelname, lr)] = {
                 "model": model,
-                "data": graph_with_emb,
+                "data": graph_data,
                 "metrics": metrics,
             }
 
