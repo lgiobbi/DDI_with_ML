@@ -17,9 +17,9 @@ warnings.simplefilter(action="ignore", category=FutureWarning)
 
 LR_LAMBDA = 0.99
 GRAPH_URL = "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv"
-FEAUTURES = {"GPT+Desc": "/data/giobbi/embeddings/Dr_Desc_GPT.csv"}
+FEATURES = {"GPT+Desc": "/data/giobbi/embeddings/Dr_Desc_GPT.csv"}
 
-
+KEPT_PERC_NOT_IN_GRAPH = 0.0  # Percentage of drugs not in graph to keep
 
 
 def get_node_id_map(DDI_graph: pd.DataFrame) -> dict:
@@ -241,7 +241,7 @@ def run_training(
     """Train a GNN model on the provided data.
 
     Args:
-        data (Data): The input data for training.
+        data (Data): The input graph data for training.
         transform (Callable[[Data], Tuple[Data, Data, Data]]): A function to transform the data into train/val/test splits.
         device (torch.device): The device to train the model on.
         epochs (int, optional): The number of training epochs. Defaults to 100.
@@ -253,7 +253,10 @@ def run_training(
     """
     print("-------------------------------")
     print(f"Training with LR: {lr}")
+
+    # Splits edge labels into train/val/test sets, with negative sampling for val and test only. Negative training edges are added manually for more control.
     train_data, val_data, test_data = transform(data)
+    
     model = Net(data.num_features, 256, 256).to(device)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
     scheduler = MultiplicativeLR(optimizer, lr_lambda=lambda epoch: LR_LAMBDA)
@@ -313,17 +316,28 @@ def align_embedding_and_graph(DDI_graph, emb):
     
     DrugIDs_in_graph = np.unique(DDI_graph.values)
 
-    emb = emb[emb['Drug ID'].isin(DrugIDs_in_graph)]
+    #emb = emb[emb['Drug ID'].isin(DrugIDs_in_graph)]
 
     # Create a mapping from drug IDs to node indices
     node_id_map = {drug_id: i for i, drug_id in enumerate(DrugIDs_in_graph)}
 
     # Align embeddings to node_id_map order
     emb = emb.set_index('Drug ID')
-    emb = emb.reindex(DrugIDs_in_graph)
+    #emb = emb.reindex(DrugIDs_in_graph)
+
+    in_graph = emb.loc[emb.index.intersection(DrugIDs_in_graph)]
+    not_in_graph = emb.loc[~emb.index.isin(DrugIDs_in_graph)]
+
+    kept_n_not_in_graph = int(len(not_in_graph) * KEPT_PERC_NOT_IN_GRAPH / 100.0)
+    not_in_graph = not_in_graph.iloc[:kept_n_not_in_graph, :]
+
+    # Stack: first those in graph (in order), then the rest
+    emb = pd.concat([in_graph.reindex(DrugIDs_in_graph).dropna(how="all"), not_in_graph])
 
     if (len(np.unique(DDI_graph.values)) != len(emb)):
-        print("Mismatch in number of drugs between graph and embeddings!")
+        print("\n---------------------------\n"
+              " Warning: Mismatch in number of drugs between graph and embeddings!\n"
+              "---------------------------\n")
 
     return DDI_graph, emb, node_id_map
 
@@ -341,7 +355,7 @@ def process_graph_and_embeddings(DDI_graph: pd.DataFrame, emb: pd.DataFrame, nod
 
     # Map drug IDs in the graph to integer indices
     DDI_graph = DDI_graph.map(lambda id: map_node_id(node_id_map, id)).to_numpy()
-    DDI_graph = np.vstack((DDI_graph, DDI_graph[:, ::-1]))  # Make bidirectional
+    #DDI_graph = np.vstack((DDI_graph, DDI_graph[:, ::-1]))  # Make bidirectional
 
     edge_index = torch.tensor(DDI_graph).t().contiguous()
     features = torch.tensor(emb.values, dtype=torch.float32)
@@ -371,8 +385,8 @@ def main():
     LR = [0.0003]
 
     results = {}
-    for modelname, directory in FEAUTURES.items():
-        emb = pd.read_csv(directory, sep="\t", index_col=0).dropna()
+    for modelname, path_data in FEATURES.items():
+        emb = pd.read_csv(path_data, sep="\t", index_col=0).dropna()
 
         DDI_graph_adj, emb, node_id_map = align_embedding_and_graph(DDI_graph.copy(), emb)
         features, edge_index  = process_graph_and_embeddings(DDI_graph_adj, emb, node_id_map)
