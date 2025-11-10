@@ -8,7 +8,6 @@ import torch
 import torch.nn.functional as F
 from sklearn.metrics import auc, precision_recall_curve, roc_auc_score
 from torch.optim.lr_scheduler import MultiplicativeLR
-import torch_geometric
 from torch_geometric.data import Data
 from torch_geometric.nn import GCNConv
 from torch_geometric.transforms import RandomLinkSplit
@@ -23,14 +22,7 @@ FEATURES = {
     # "NoFeat (Ones)": "__ONES__",
 }
 
-KEPT_PERC_NOT_IN_GRAPH = 0.0  # Percentage of drugs not in graph to keep
-
-seed = 41
-torch.manual_seed(seed)
-np.random.seed(seed)
-# torch.backends.cudnn.deterministic = True
-# torch.backends.cudnn.benchmark = False
-torch_geometric.seed_everything(seed)
+KEPT_PERC_NOT_IN_GRAPH = 100.0  # Percentage of drugs not in graph to keep
 
 
 def get_node_id_map(DDI_graph: pd.DataFrame) -> dict:
@@ -318,16 +310,7 @@ def run_training(
     return model, test_label, best_test_scores, test_data
 
 
-def match_embeddings_to_graph(DDI_graph: pd.DataFrame, emb: pd.DataFrame) -> Tuple[pd.DataFrame, dict]:
-    """Align embeddings to the DDI graph, adding dummy embeddings for missing drugs.
-
-    Args:
-        DDI_graph (pd.DataFrame):  _the drug-drug interaction graph.
-        emb (pd.DataFrame): _the drug embeddings.
-
-    Returns:
-        Tuple[pd.DataFrame, dict]: _the aligned embeddings and node ID mapping.
-    """
+def match_embeddings_to_graph(DDI_graph, emb):
     all_drug_ids = pd.unique(DDI_graph[["src", "dst"]].values.ravel())
     emb = emb.set_index("Drug ID")
     missing_drugs = set(all_drug_ids) - set(emb.index)
@@ -477,7 +460,7 @@ def main():
         else:
             emb = pd.read_csv(path_data, sep="\t", index_col=0).dropna()
 
-            emb, node_id_map = match_embeddings_to_graph(current_DDI_graph, emb)
+            current_DDI_graph, emb, node_id_map = intersect_graph_and_embeddings(current_DDI_graph, emb)
             features, edge_index = process_graph_and_embeddings(current_DDI_graph, emb, node_id_map)
 
         graph_data = Data(
