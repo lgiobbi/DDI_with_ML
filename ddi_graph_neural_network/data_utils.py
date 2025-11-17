@@ -15,7 +15,7 @@ def get_node_id_map(DDI_graph: pd.DataFrame) -> dict:
     Returns:
         dict: Mapping from drug IDs to node indices.
     """
-    DrugIDs_in_graph = np.unique(DDI_graph.values)
+    DrugIDs_in_graph = np.unique(DDI_graph[["src", "dst"]].values)
     node_id_map = {node_name: i for i, node_name in enumerate(DrugIDs_in_graph)}
     return node_id_map
 
@@ -77,7 +77,7 @@ def intersect_graph_and_embeddings(
         DDI_graph["src"].isin(emb[drug_id_col]) & DDI_graph["dst"].isin(emb[drug_id_col])
     ].reset_index(drop=True)
 
-    DrugIDs_in_graph = np.unique(DDI_graph.values)
+    DrugIDs_in_graph = np.unique(DDI_graph[['src', 'dst']].values)
 
     # emb = emb[emb['Drug ID'].isin(DrugIDs_in_graph)]
 
@@ -97,7 +97,7 @@ def intersect_graph_and_embeddings(
     # Stack: first those in graph (in order), then the rest
     emb = pd.concat([in_graph.reindex(DrugIDs_in_graph).dropna(how="all"), not_in_graph])
 
-    if len(np.unique(DDI_graph.values)) != len(emb):
+    if len(DrugIDs_in_graph) != len(emb):
         print(
             "\n---------------------------\n"
             " Warning: Mismatch in number of drugs between graph and embeddings!\n"
