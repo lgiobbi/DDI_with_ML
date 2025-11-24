@@ -64,6 +64,7 @@ def intersect_graph_and_embeddings(
     DDI_graph: pd.DataFrame, emb: pd.DataFrame, drug_id_col: str
 ) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Drop drug from the graph that are not in the embeddings and drop embeddings that are not in the graph.
+    Align embeddings to the order of drugs in the graph.
 
     Args:
         DDI_graph (pd.DataFrame): The drug-drug interaction graph.
@@ -77,7 +78,7 @@ def intersect_graph_and_embeddings(
         DDI_graph["src"].isin(emb[drug_id_col]) & DDI_graph["dst"].isin(emb[drug_id_col])
     ].reset_index(drop=True)
 
-    DrugIDs_in_graph = np.unique(DDI_graph[['src', 'dst']].values)
+    DrugIDs_in_graph = np.unique(DDI_graph[["src", "dst"]].values)
 
     # emb = emb[emb['Drug ID'].isin(DrugIDs_in_graph)]
 
@@ -107,8 +108,8 @@ def intersect_graph_and_embeddings(
     return DDI_graph, emb, node_id_map
 
 
-def process_graph_and_embeddings(
-    DDI_graph: pd.DataFrame,
+def get_features_and_edges(
+    DDI_df: pd.DataFrame,
     emb: pd.DataFrame,
     node_id_map: dict,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -122,18 +123,17 @@ def process_graph_and_embeddings(
         Tuple[torch.Tensor, torch.Tensor]: The processed edge index and node features.
     """
     emb = emb.select_dtypes(include=["float"])
-
-    # Map drug IDs in the graph to integer indices
-    DDI_graph = DDI_graph.map(lambda id: map_node_id(node_id_map, id)).to_numpy()
-    # DDI_graph = np.vstack((DDI_graph, DDI_graph[:, ::-1]))  # Make bidirectional
-
-    edge_index = torch.tensor(DDI_graph).t().contiguous()
     features = torch.tensor(emb.values, dtype=torch.float32)
+
+    edge_index = DDI_df[["src", "dst"]].map(lambda id: map_node_id(node_id_map, id)).to_numpy()
+    edge_index = torch.tensor(edge_index).t().contiguous()
+
+    # DDI_graph = np.vstack((DDI_graph, DDI_graph[:, ::-1]))  # Make bidirectional
     return features, edge_index
 
 
-def process_graph_with_constant_feature(
-    DDI_graph: pd.DataFrame,
+def get_features_and_edges_constant(
+    DDI_df: pd.DataFrame,
     feature_value: float = 1.0,
     feature_dim: int = 1,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
@@ -150,14 +150,11 @@ def process_graph_with_constant_feature(
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: Node features tensor and edge_index tensor.
     """
-    # Map node names to contiguous indices
-    node_id_map = get_node_id_map(DDI_graph)
-
-    # Index edges according to node_id_map
-    DDI_graph_idx = DDI_graph.map(lambda id: map_node_id(node_id_map, id)).to_numpy()
-    edge_index = torch.tensor(DDI_graph_idx).t().contiguous()
-
-    # Constant features (e.g., all ones). Keeps memory small vs one-hot.
+    node_id_map = get_node_id_map(DDI_df)
     num_nodes = len(node_id_map)
     features = torch.full((num_nodes, feature_dim), float(feature_value), dtype=torch.float32)
+
+    edge_index = DDI_df[["src", "dst"]].map(lambda id: map_node_id(node_id_map, id)).to_numpy()
+    edge_index = torch.tensor(edge_index).t().contiguous()
+
     return features, edge_index

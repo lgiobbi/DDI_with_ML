@@ -1,11 +1,10 @@
 # %%
 import warnings
-from typing import Callable, Tuple
+from typing import Tuple
 
 import numpy as np
 import pandas as pd
 import torch
-import torch.nn.functional as F
 from sklearn.metrics import auc, precision_recall_curve, roc_auc_score
 from torch.optim.lr_scheduler import MultiplicativeLR
 import torch_geometric
@@ -16,23 +15,26 @@ from torch_geometric.utils import structured_negative_sampling
 from ddi_graph_neural_network.model import Net
 from ddi_graph_neural_network.data_utils import (
     intersect_graph_and_embeddings,
-    process_graph_and_embeddings,
-    process_graph_with_constant_feature,
+    get_features_and_edges_constant,
+    get_features_and_edges,
 )
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 LR_LAMBDA = 0.96
+AVAILABLE_GRAPHS = {
+    "ChCh_Miner": "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv",
+    "positive_edges_CRESCENDDI": "/data/giobbi/CRESCENDDI/positive_edges_CRESCENDDI.csv",
+    "CRESCENDDI": "/data/giobbi/CRESCENDDI/CRESCENDDI.csv",
+}
 
-# Path
-GRAPH_URL = "/data/giobbi/CRESCENDDI/positive_edges_CRESCENDDI.csv"
-# "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv"
+CURRENT_GRAPH = "CRESCENDDI"
 
 # Features
 FEATURES = {
     "GPT+Desc": "/data/giobbi/embeddings/Dr_Desc_GPT.csv",
     # "SMILES_GPT": "/data/giobbi/embeddings/SMILES_GPT.csv",
-    "NoFeat (Ones)": "__ONES__",
+    # "NoFeat (Ones)": "__ONES__",
 }
 
 DRUG_ID_NAME_MAP = {
@@ -55,8 +57,6 @@ def train(
     criterion: torch.nn.Module,
     scheduler: torch.optim.lr_scheduler._LRScheduler,
     train_data: Data,
-    edge_label_index: torch.Tensor,
-    edge_label_gt: torch.Tensor,
 ) -> torch.Tensor:
     """
     Trains the GNN model for one epoch on the provided training data.
@@ -67,8 +67,6 @@ def train(
         criterion (torch.nn.Module): Loss function to optimize.
         scheduler (torch.optim.lr_scheduler._LRScheduler): Learning rate scheduler.
         train_data (Data): Training data containing node features and edges.
-        edge_label_index (torch.Tensor): Edge indices for which to compute the loss.
-        edge_label_gt (torch.Tensor): Ground truth labels for the edges.
 
     Returns:
         torch.Tensor: The computed loss value for the epoch.
@@ -76,8 +74,8 @@ def train(
     model.train()
     optimizer.zero_grad()
     z = model.encode(train_data.x, train_data.edge_index)
-    predicted_edge_label = model.decode(z, edge_label_index).view(-1)
-    loss = criterion(predicted_edge_label, edge_label_gt)
+    predicted_edge_label = model.decode(z, train_data.edge_label_index).view(-1)
+    loss = criterion(predicted_edge_label, train_data.edge_label)
     loss.backward()
     optimizer.step()
     scheduler.step()
@@ -104,7 +102,7 @@ def test(model: Net, data: Data) -> Tuple[float, np.ndarray, np.ndarray]:
     return roc, label, score
 
 
-def prepare_labels(edge_index: torch.Tensor, num_nodes: int) -> Tuple[torch.Tensor, torch.Tensor]:
+def prepare_train_labels(edge_index: torch.Tensor, num_nodes: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """Prepare positive and negative edge labels for training.
 
     Args:
@@ -152,9 +150,83 @@ def get_metrics(label: np.ndarray, scores: np.ndarray) -> dict:
     return {"AUC": auc_score, "PR_AUC": pr_auc}
 
 
+def combine_splits(pos_split, neg_split):
+    """Combines positive and negative data splits."""
+    combined_split = pos_split.clone()
+
+    # The supervision edges from the negative split are all negatives (label 0)
+    neg_split.edge_label = torch.zeros_like(neg_split.edge_label)
+
+    # Concatenate supervision edges and labels
+    combined_split.edge_label_index = torch.cat([pos_split.edge_label_index, neg_split.edge_label_index], dim=-1)
+    combined_split.edge_label = torch.cat([pos_split.edge_label, neg_split.edge_label], dim=0)
+
+    return combined_split
+
+
+def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
+    """Splits the data into training, validation, and test sets while preserving labels.
+
+    Args:
+        data (Data): Input data to be split.
+
+    Returns:
+        Tuple[Data, Data, Data]: Training, validation, and test data splits.
+    """
+    # Todo: check if data.y does not exist if "label" column is not in the original dataframe
+    if hasattr(data, "y") and data.y is not None:
+        # positive samples
+        positive_mask = data.y != 30
+        positive_data = Data(x=data.x, edge_index=data.edge_index[:, positive_mask])  # , y=data.y[positive_mask])
+        positive_transform = RandomLinkSplit(
+            num_val=0.2,
+            num_test=0.2,
+            is_undirected=True,  # adds bidirectional edges if not already present
+            add_negative_train_samples=False,  # should the train set have negative samples added like val/test?
+            neg_sampling_ratio=0.0,  # No new negative samples
+            # key="y",
+        )
+        pos_train, pos_val, pos_test = positive_transform(positive_data)
+
+        # negative samples
+        negative_mask = data.y == 0
+        negative_data = Data(x=data.x, edge_index=data.edge_index[:, negative_mask])  # , y=data.y[negative_mask])
+        negative_transform = RandomLinkSplit(
+            num_val=0.2,
+            num_test=0.2,
+            is_undirected=True,
+            add_negative_train_samples=False,
+            neg_sampling_ratio=0.0,
+            # key="y",
+        )
+        neg_train, neg_val, neg_test = negative_transform(negative_data)
+
+        # Create the final combined data splits
+        train_data = combine_splits(pos_train, neg_train)
+        val_data = combine_splits(pos_val, neg_val)
+        test_data = combine_splits(pos_test, neg_test)
+
+        return train_data, val_data, test_data
+    else:
+        transform = RandomLinkSplit(
+            num_val=0.2,
+            num_test=0.2,
+            is_undirected=True,
+            add_negative_train_samples=False,
+            neg_sampling_ratio=1.0,
+        )
+        train_data, val_data, test_data = transform(data)
+        edge_label_index, edge_label = prepare_train_labels(
+            edge_index=train_data.edge_index,
+            num_nodes=train_data.num_nodes,
+        )
+        train_data.edge_label_index = edge_label_index
+        train_data.edge_label = edge_label
+        return train_data, val_data, test_data
+
+
 def run_training(
     data: Data,
-    transform: Callable[[Data], Tuple[Data, Data, Data]],
     device: torch.device,
     epochs: int = 100,
     patience: int = 10,
@@ -176,19 +248,21 @@ def run_training(
     print("-------------------------------")
     print(f"Training with LR: {lr}")
 
-    # Splits edge labels into train/val/test sets, with negative sampling for val and test only. Negative training edges are added manually for more control.
-    train_data, val_data, test_data = transform(data)
+    train_data, val_data, test_data = data_split_with_labels(data)
 
+    # get drug names of 700th edge index
+    # idx = 6010
+    # train_data = train_data.to(device)
+    # indices_of_interest = train_data.edge_label_index[:, idx].cpu().numpy()
+    # print(f"{idx} edge index drug names:", inverted_node_id_map[indices_of_interest[0]], inverted_node_id_map[indices_of_interest[1]])
+
+    # Initialize model, optimizer, scheduler, and loss function
     model = Net(data.num_features, 256, 256).to(device)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
     scheduler = MultiplicativeLR(optimizer, lr_lambda=lambda epoch: LR_LAMBDA)
     criterion = torch.nn.BCEWithLogitsLoss()
 
-    edge_label_index, edge_label = prepare_labels(
-        edge_index=train_data.edge_index,
-        num_nodes=train_data.num_nodes,
-    )
-
+    # Training loop with early stopping
     best_val_auc: float = -float("inf")
     wait: int = 0
     best_model_state = None
@@ -196,6 +270,8 @@ def run_training(
     test_label = None
     last_test_scores = None
     last_test_label = None
+
+    # Training loop
     for epoch in range(1, epochs):
         loss = train(
             model,
@@ -203,8 +279,6 @@ def run_training(
             criterion,
             scheduler,
             train_data,
-            edge_label_index,
-            edge_label,
         )
         val_auc, _, _ = test(model, val_data)
         _, test_label_tmp, test_score_tmp = test(model, test_data)
@@ -233,57 +307,67 @@ def run_training(
     return model, test_label, best_test_scores, test_data
 
 
+# construct graph_data object from features and edge_index
+def get_graph_data(DDI_df: pd.DataFrame, feature_type: str, feature_path: str) -> Data:
+    """Construct a PyTorch Geometric Data object from DDI dataframe and features.
+
+    Args:
+        DDI_df (pd.DataFrame): DataFrame containing drug-drug interactions.
+        feature_type (str): Type of features to use.
+        feature_path (str): Path to the feature file or special token for constant features.
+
+    Returns:
+        Data: A PyTorch Geometric Data object containing the graph data.
+    """
+    DDI_df = DDI_df.copy()
+
+    # extract features and edge_index
+    if feature_path == "__ONES__":
+        features, edge_index = get_features_and_edges_constant(DDI_df, feature_value=1.0, feature_dim=1)
+    else:
+        emb = pd.read_csv(feature_path, sep="\t", index_col=0).dropna()
+        # global node_id_map
+        # global inverted_node_id_map
+
+        # def get_inverted_node_id_map(node_id_map) -> dict:
+        #    inverted_map = {v: k for k, v in node_id_map.items()}
+        #    return inverted_map
+
+        DDI_df, emb, node_id_map = intersect_graph_and_embeddings(DDI_df, emb, DRUG_ID_NAME_MAP[feature_type])
+        features, edge_index = get_features_and_edges(DDI_df, emb, node_id_map)
+        # inverted_node_id_map = get_inverted_node_id_map(node_id_map)
+
+    labels = torch.tensor(DDI_df["label"].values, dtype=torch.float32) if "label" in DDI_df.columns else None
+
+    return Data(x=features, edge_index=edge_index, y=labels)
+
+
 def main():
     """Train and evaluate GNN models on DDI data.
 
     Returns:
         dict: A dictionary containing the results of the training.
     """
-    DDI_graph = pd.read_csv(
-        GRAPH_URL,
+    print("Current graph:", CURRENT_GRAPH)
+    DDI_df = pd.read_csv(
+        AVAILABLE_GRAPHS[CURRENT_GRAPH],
         sep="\t",
     ).rename(columns={"Drug1": "src", "Drug2": "dst"})
-
-    transform = RandomLinkSplit(
-        num_val=0.2,
-        num_test=0.2,
-        is_undirected=True,
-        add_negative_train_samples=False,
-        neg_sampling_ratio=1.0,
-    )
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     epochs = 100
     LR = [0.0003]
 
     results = {}
-    for modelname, path_data in FEATURES.items():
-        current_DDI_graph = DDI_graph.copy()
-        if path_data == "__ONES__":
-            # Featureless run: constant ones per node
-            features, edge_index = process_graph_with_constant_feature(
-                current_DDI_graph, feature_value=1.0, feature_dim=1
-            )
-        else:
-            emb = pd.read_csv(path_data, sep="\t", index_col=0).dropna()
-
-            current_DDI_graph, emb, node_id_map = intersect_graph_and_embeddings(
-                current_DDI_graph, emb, DRUG_ID_NAME_MAP[modelname]
-            )
-            features, edge_index = process_graph_and_embeddings(current_DDI_graph, emb, node_id_map)
-
-        graph_data = Data(
-            x=features,
-            edge_index=edge_index,
-        )
+    for feature_type, feature_path in FEATURES.items():
+        graph_data = get_graph_data(DDI_df, feature_type, feature_path)
 
         for lr in LR:
-            print(f"======== {modelname} | LR: {lr} ========")
-
-            model, label, best_scores, test_data = run_training(graph_data, transform, device, epochs=epochs, lr=lr)
+            print(f"======== {feature_type} | LR: {lr} ========")
+            model, label, best_scores, test_data = run_training(graph_data, device, epochs=epochs, lr=lr)
             metrics = get_metrics(label, best_scores)
 
-            results[(modelname, lr)] = {
+            results[(feature_type, lr)] = {
                 "model": model,
                 "data": graph_data,
                 "metrics": metrics,
