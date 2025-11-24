@@ -39,14 +39,13 @@ class Net(torch.nn.Module):
         return x
 
     def decode(self, z: torch.Tensor, edge_label_index: torch.Tensor) -> torch.Tensor:
-        """_summary_
+        """Decode edge labels from encoded node features.
 
         Args:
-            z (torch.Tensor): _description_
-            edge_label_index (torch.Tensor): _description_
-
+            z (torch.Tensor): Encoded node features.
+            edge_label_index (torch.Tensor): Edge label indices.
         Returns:
-            torch.Tensor: _description_
+            torch.Tensor: Decoded edge labels.
         """
         return (z[edge_label_index[0]] * z[edge_label_index[1]]).sum(dim=-1)
 
