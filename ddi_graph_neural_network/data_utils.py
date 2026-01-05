@@ -189,7 +189,7 @@ def get_graph_data(DDI_df: pd.DataFrame, config: Config) -> Data:
     Returns:
         Data: A PyTorch Geometric Data object containing the graph data.
     """
-    feature_type = config.feature
+    feature_type = config.graph.feature
     DDI_df = DDI_df.copy()
 
     # extract features and edge_index
@@ -197,8 +197,8 @@ def get_graph_data(DDI_df: pd.DataFrame, config: Config) -> Data:
         node_id_map = get_node_id_map(DDI_df)
         features, edge_index = get_features_and_edges_constant(DDI_df, feature_value=1.0, feature_dim=1)
     else:
-        emb = pd.read_csv(config.feature_path, sep="\t", index_col=0).dropna()
-        DDI_df, emb, node_id_map = intersect_graph_and_embeddings(DDI_df, emb, config.col_name_drug_id)
+        emb = pd.read_csv(config.graph.feature_path, sep="\t", index_col=0).dropna()
+        DDI_df, emb, node_id_map = intersect_graph_and_embeddings(DDI_df, emb, config.graph.col_name_drug_id)
         features, edge_index = get_features_and_edges(DDI_df, emb, node_id_map)
         # inverted_node_id_map = get_inverted_node_id_map(node_id_map)
 
@@ -207,7 +207,7 @@ def get_graph_data(DDI_df: pd.DataFrame, config: Config) -> Data:
     # edge_index = edge_index[:, labels == 1]
     # labels = None
 
-    if labels is not None:
+    if labels is not None and config.run.balanced_labels:
         pos_mask = labels == 1
         neg_mask = labels == 0
         min_count = min(pos_mask.sum().item(), neg_mask.sum().item())
@@ -215,14 +215,14 @@ def get_graph_data(DDI_df: pd.DataFrame, config: Config) -> Data:
         # Get indices for balanced set
         pos_indices = torch.where(pos_mask)[0][:min_count]
         neg_indices = torch.where(neg_mask)[0][:min_count]
-        balanced_indices = torch.cat([pos_indices, neg_indices]) if config.take_negative_samples else pos_indices
+        balanced_indices = torch.cat([pos_indices, neg_indices]) if config.run.take_negative_samples else pos_indices
 
         # Shuffle for randomness
         # balanced_indices = balanced_indices[torch.randperm(len(balanced_indices))]
 
         # Select balanced edge_index and labels
         edge_index = edge_index[:, balanced_indices]
-        labels = labels[balanced_indices] if config.take_negative_samples else None
+        labels = labels[balanced_indices] if config.run.take_negative_samples else None
         logger.debug(
             f"Balancing the dataset to have equal positive and negative samples. \n"
             f"Dropped positive edges: {pos_mask.sum().item() - min_count}, \n"

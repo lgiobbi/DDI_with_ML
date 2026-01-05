@@ -202,28 +202,23 @@ def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
 
 
 def run_training(
+    config: Config,
     data: Data,
     device: torch.device,
-    epochs: int = 100,
-    patience: int = 10,
-    lr: float = 0.0003,
-    lr_lambda: float = 0.96,
 ) -> Tuple[Net, np.ndarray, np.ndarray]:
     """Train a GNN model on the provided data.
 
     Args:
+        config (Config): Configuration object containing training parameters.
         data (Data): The input graph data for training.
-        transform (Callable[[Data], Tuple[Data, Data, Data]]): A function to transform the data into train/val/test splits.
-        device (torch.device): The device to train the model on.
-        epochs (int, optional): The number of training epochs. Defaults to 100.
-        patience (int, optional): The number of epochs to wait for improvement before stopping. Defaults to 10.
-        lr (float, optional): The learning rate for the optimizer. Defaults to 0.0003.
+        device (torch.device): The device to run the training on.
 
     Returns:
         Tuple[Net, np.ndarray, np.ndarray]: The trained GNN model and the corresponding labels and scores.
     """
 
     train_data, val_data, test_data = data_split_with_labels(data)
+
 
     # get drug names of 700th edge index
     # idx = 6010
@@ -233,9 +228,18 @@ def run_training(
 
     # Initialize model, optimizer, scheduler, and loss function
     model = Net(data.num_features, 256, 256).to(device)
-    optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
-    scheduler = MultiplicativeLR(optimizer, lr_lambda=lambda epoch: lr_lambda)
-    criterion = torch.nn.BCEWithLogitsLoss()
+    optimizer = torch.optim.Adam(params=model.parameters(), lr=config.training.learning_rate)
+    scheduler = MultiplicativeLR(optimizer, lr_lambda=lambda epoch: config.training.lr_lambda)
+
+    if config.run.imbalanced_loss:
+        num_positives = (train_data.edge_label == 1).sum().item()
+        num_negatives = (train_data.edge_label == 0).sum().item()
+        pos_weight = torch.tensor([num_negatives / num_positives], device=device)
+
+        logger.debug(f"Using imbalanced loss with pos_weight: {pos_weight.item():.4f}")
+        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    else:
+        criterion = torch.nn.BCEWithLogitsLoss()
 
     # Training loop with early stopping
     best_val_auc: float = -float("inf")
@@ -247,7 +251,7 @@ def run_training(
     last_test_label = None
 
     # Training loop
-    for epoch in range(1, epochs):
+    for epoch in range(1, config.training.epochs):
         loss = train(
             model,
             optimizer,
@@ -268,7 +272,7 @@ def run_training(
         else:
             wait += 1
         # print(f"Epoch: {epoch:03d}, Loss: {loss:.4f}, Val: {val_auc:.4f}")
-        if wait >= patience:
+        if wait >= config.training.patience:
             logger.debug(f"Early stopping at epoch {epoch}")
             break
 
@@ -288,21 +292,23 @@ def main(config: Config = Config()) -> dict:
     Returns:
         dict: A dictionary containing the results of the training.
     """
-    if config.seed is not None:
-        torch.manual_seed(config.seed)
-        np.random.seed(config.seed)
-        torch_geometric.seed_everything(config.seed)
+    if config.training.seed is not None:
+        torch.manual_seed(config.training.seed)
+        np.random.seed(config.training.seed)
+        torch_geometric.seed_everything(config.training.seed)
         # torch.backends.cudnn.deterministic = True
         # torch.backends.cudnn.benchmark = False
 
-    print("Current graph:", config.current_graph)
+    print("Current graph:", config.graph.current_graph)
     DDI_df = pd.read_csv(
-        config.available_graphs[config.current_graph],
+        config.graph.available_graphs[config.graph.current_graph],
         sep="\t",
     ).rename(columns={"Drug1": "src", "Drug2": "dst"})
 
     # shuffle the dataframe
-    DDI_df = DDI_df.sample(frac=1, random_state=config.seed_graph_sampling).reset_index(drop=True)  # , random_state=10
+    DDI_df = DDI_df.sample(frac=1, random_state=config.graph.seed_graph_sampling).reset_index(
+        drop=True
+    )  # , random_state=10
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     results = {}
@@ -310,31 +316,30 @@ def main(config: Config = Config()) -> dict:
     PR_bucket = []
     graph_data, node_id_map = get_graph_data(DDI_df, config)
 
-    print(f"======== {config.feature} ========")
-    for i in range(config.repetitions):
-        logger.debug(f"Run {i + 1}/{config.repetitions} for {config.feature} | LR: {config.learning_rate}")
+    print(f"======== {config.graph.feature} ========")
+    for i in range(config.training.repetitions):
+        logger.debug(
+            f"Run {i + 1}/{config.training.repetitions} for {config.graph.feature} | LR: {config.training.learning_rate}"
+        )
         model, label, test_scores, test_data = run_training(
+            config,
             graph_data,
             device,
-            epochs=config.epochs,
-            lr=config.learning_rate,
-            patience=config.patience,
-            lr_lambda=config.lr_lambda,
         )
         metrics = get_metrics(label, test_scores)
         AUC_bucket.append(metrics["AUC"])
         PR_bucket.append(metrics["PR_AUC"])
 
     print("-------------------------------")
-    print(f"-- FINAL RESULTS FOR GRAPH {config.current_graph} | FEATURE {config.feature} -- ")
-    print("Graph Data: ", config.current_graph)
+    print(f"-- FINAL RESULTS FOR GRAPH {config.graph.current_graph} | FEATURE {config.graph.feature} -- ")
+    print("Graph Data: ", config.graph.current_graph)
     print(f"ROC_AUC: {np.mean(AUC_bucket):.4f}")
     print(f"PR_AUC: {np.mean(PR_bucket):.4f}")
 
-    if config.repetitions > 1:
+    if config.training.repetitions > 1:
         print(f"std ROC_AUC: {np.std(AUC_bucket):.4f}")
         print(f"std PR_AUC: {np.std(PR_bucket):.4f}")
-        print(f"repetitions: {config.repetitions}")
+        print(f"repetitions: {config.training.repetitions}")
         print("-------------------------------")
 
     metrics = {
@@ -342,7 +347,7 @@ def main(config: Config = Config()) -> dict:
         "AUC_std": np.std(AUC_bucket),
         "PR_AUC_mean": np.mean(PR_bucket),
         "PR_AUC_std": np.std(PR_bucket),
-        "repetitions": config.repetitions,
+        "repetitions": config.training.repetitions,
     }
 
     results = {
@@ -360,60 +365,11 @@ def main(config: Config = Config()) -> dict:
 
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
-    feauture_list = ["__ONES__", "SMILES_GPT", "DESC_GPT", "DESC_GPT" + "_+_" + "SMILES_GPT"]
-    graph_list = [
-        (
-            "DrugBank",
-            False,
-        ),
-        ("CRESCENDDI", True),
-        ("CRESCENDDI", False),
-    ]
+    config = Config()
+    config.run.take_negative_samples = True
+    config.run.balanced_labels = False
+    config.run.imbalanced_loss = True
 
-    datestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-
-    # create a csv file to store results
-    with open(f"training_results/training_results_{datestamp}.csv", "w") as f:
-        writer = csv.writer(f)
-        writer.writerow(
-            [
-                "Feature",
-                "Graph",
-                "Negative Samples",
-                "AUC_mean",
-                "PR_AUC_mean",
-                "AUC_std",
-                "PR_AUC_std",
-                "Repetitions",
-            ]
-        )
-
-    start = datetime.now()
-    for graph, neg_sample in graph_list:
-        for feature in feauture_list:
-            print("\n================================")
-            print(f"Running feature set: {feature}, Graph: {graph}, Negative Samples: {neg_sample}")
-            config = Config(take_negative_samples=neg_sample, feature=feature, current_graph=graph, repetitions=5)
-            results = main(config)
-            # write setup and results to a csv file
-
-            with open(f"training_results/training_results_{datestamp}.csv", "a") as f:
-                writer = csv.writer(f)
-                writer.writerow(
-                    [
-                        feature,
-                        graph,
-                        neg_sample,
-                        results["metrics"]["AUC_mean"],
-                        results["metrics"]["PR_AUC_mean"],
-                        results["metrics"]["AUC_std"],
-                        results["metrics"]["PR_AUC_std"],
-                        results["metrics"]["repetitions"],
-                    ]
-                )
-
-            print("================================\n")
-    end = datetime.now()
-    print("Total runtime:", end - start)
+    main(config)
 
 # %%

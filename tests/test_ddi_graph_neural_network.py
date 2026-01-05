@@ -106,9 +106,12 @@ def test_get_features_and_edges_constant_shapes_and_values():
 # Test get_graph_data with __ONES__ features when negatives are ignored in labels.
 def test_get_graph_data_ones_with_labels_take_negative_samples_false():
     ddi = _toy_ddi_df(num_pos=5, num_neg=3)
-    cfg = Config(take_negative_samples=False)
+    cfg = Config()
+    cfg.graph.feature = "__ONES__"
+    cfg.run.take_negative_samples = False
+    cfg.run.balanced_labels = True
 
-    data, node_id_map = get_graph_data(ddi, feature_type="GPT+Desc", feature_path="__ONES__", config=cfg)
+    data, node_id_map = get_graph_data(ddi, cfg)
 
     # should keep only positives (balanced down to min(pos, neg)) and set y=None
     assert data.y is None
@@ -120,9 +123,12 @@ def test_get_graph_data_ones_with_labels_take_negative_samples_false():
 # Test get_graph_data with __ONES__ features when positives/negatives are balanced.
 def test_get_graph_data_ones_with_labels_take_negative_samples_true():
     ddi = _toy_ddi_df(num_pos=5, num_neg=3)
-    cfg = Config(take_negative_samples=True)
+    cfg = Config()
+    cfg.graph.feature = "__ONES__"
+    cfg.run.take_negative_samples = True
+    cfg.run.balanced_labels = True
 
-    data, node_id_map = get_graph_data(ddi, feature_type="GPT+Desc", feature_path="__ONES__", config=cfg)
+    data, node_id_map = get_graph_data(ddi, cfg)
 
     assert data.y is not None
     assert data.edge_index.shape[1] == 6
@@ -133,15 +139,27 @@ def test_get_graph_data_ones_with_labels_take_negative_samples_true():
 
 
 # Test get_graph_data reading real embeddings from a TSV file.
-def test_get_graph_data_from_embeddings_reads_tsv(tmp_path):
+def test_get_graph_data_from_embeddings_reads_tsv(tmp_path, monkeypatch):
     ddi = _toy_ddi_df(num_pos=4, num_neg=4)
     drug_ids = sorted(set(ddi["src"]).union(set(ddi["dst"])))
     emb_path = _write_toy_embeddings_tsv(tmp_path, drug_ids)
 
-    cfg = Config(take_negative_samples=True)
-    cfg.drug_id_name_map["GPT+Desc"] = "Drug ID"
+    cfg = Config()
+    cfg.graph.feature = "DESC_GPT"
+    cfg.run.take_negative_samples = True
 
-    data, node_id_map = get_graph_data(ddi, feature_type="GPT+Desc", feature_path=emb_path, config=cfg)
+    # Save the original pd.read_csv before monkeypatching
+    real_read_csv = pd.read_csv
+
+    def fake_read_csv(path, sep="\t", index_col=0):
+        # get_graph_data will call this; we ignore the path and load our test file
+        assert sep == "\t"
+        assert index_col == 0
+        return real_read_csv(emb_path, sep=sep, index_col=index_col)
+
+    monkeypatch.setattr("ddi_graph_neural_network.data_utils.pd.read_csv", fake_read_csv)
+
+    data, node_id_map = get_graph_data(ddi, cfg)
 
     assert data.x.dtype == torch.float32
     assert data.x.shape[0] == len(node_id_map)
@@ -155,8 +173,11 @@ def test_net_forward_and_backward_smoke():
     torch.manual_seed(0)
 
     ddi = _toy_ddi_df(num_pos=4, num_neg=4)
-    cfg = Config(take_negative_samples=True)
-    data, _ = get_graph_data(ddi, feature_type="GPT+Desc", feature_path="__ONES__", config=cfg)
+    cfg = Config()
+    cfg.graph.feature = "__ONES__"
+    cfg.run.take_negative_samples = True
+    cfg.run.balanced_labels = True
+    data, _ = get_graph_data(ddi, cfg)
 
     # Build supervision edges/labels for link prediction
     edge_label_index, edge_label = prepare_train_labels(data.edge_index, num_nodes=data.x.size(0))
@@ -197,8 +218,11 @@ def test_data_split_with_labels_outputs_supervision_edges():
     torch.manual_seed(0)
 
     ddi = _toy_ddi_df(num_pos=10, num_neg=10)
-    cfg = Config(take_negative_samples=True)
-    data, _ = get_graph_data(ddi, feature_type="GPT+Desc", feature_path="__ONES__", config=cfg)
+    cfg = Config()
+    cfg.graph.feature = "__ONES__"
+    cfg.run.take_negative_samples = True
+    cfg.run.balanced_labels = True
+    data, _ = get_graph_data(ddi, cfg)
 
     train_data, val_data, test_data = data_split_with_labels(data)
 
@@ -221,6 +245,12 @@ def test_data_split_with_labels_outputs_supervision_edges():
 
 # Test that run_training selects best validation epoch and early-stops using mocks.
 def test_run_training_uses_best_val_auc_and_early_stopping(monkeypatch):
+    cfg = Config()
+    cfg.training.epochs = 5
+    cfg.training.patience = 1
+    cfg.training.learning_rate = 1e-3
+    cfg.training.lr_lambda = 0.9
+
     base_data = Data(
         x=torch.zeros((3, 4), dtype=torch.float32),
         edge_index=torch.tensor([[0, 1], [1, 2]], dtype=torch.long),
@@ -269,12 +299,9 @@ def test_run_training_uses_best_val_auc_and_early_stopping(monkeypatch):
 
     device = torch.device("cpu")
     model, label, scores, returned_test_data = tm.run_training(
+        cfg,
         base_data,
         device,
-        epochs=5,
-        patience=1,
-        lr=1e-3,
-        lr_lambda=0.9,
     )
 
     assert isinstance(model, Net)
@@ -286,15 +313,16 @@ def test_run_training_uses_best_val_auc_and_early_stopping(monkeypatch):
 
 # Test that main wires Config, get_graph_data, run_training, and get_metrics together via mocks.
 def test_main_pipeline_with_mocks(monkeypatch):
-    cfg = Config(take_negative_samples=True)
-    cfg.current_graph = "MOCK_GRAPH"
-    cfg.available_graphs[cfg.current_graph] = "mock_path.tsv"
-    cfg.features = {"GPT+Desc": "__ONES__"}
+    cfg = Config()
+    cfg.graph.current_graph = "MOCK_GRAPH"
+    cfg.graph.available_graphs[cfg.graph.current_graph] = "mock_path.tsv"
+    cfg.graph.feature = "GPT+Desc"
+    cfg.run.take_negative_samples = True
 
     toy_ddi = _toy_ddi_df(num_pos=2, num_neg=2).rename(columns={"src": "Drug1", "dst": "Drug2"})
 
     def fake_read_csv(path, sep="\t"):
-        assert path == cfg.available_graphs[cfg.current_graph]
+        assert path == cfg.graph.available_graphs[cfg.graph.current_graph]
         assert sep == "\t"
         return toy_ddi
 
@@ -302,10 +330,8 @@ def test_main_pipeline_with_mocks(monkeypatch):
 
     called = {"get_graph_data": 0, "run_training": 0}
 
-    def fake_get_graph_data(ddi_df, feature_type, feature_path, config):
+    def fake_get_graph_data(ddi_df, config):
         called["get_graph_data"] += 1
-        assert feature_type == "GPT+Desc"
-        assert feature_path == "__ONES__"
         assert config is cfg
         data = Data(
             x=torch.ones((4, 1), dtype=torch.float32),
@@ -321,12 +347,9 @@ def test_main_pipeline_with_mocks(monkeypatch):
     dummy_scores = np.array([0.2, 0.8], dtype=float)
     dummy_test_data = Data()
 
-    def fake_run_training(graph_data, device, epochs, lr, patience, lr_lambda):
+    def fake_run_training(config, graph_data, device):
         called["run_training"] += 1
-        assert epochs == cfg.epochs
-        assert patience == cfg.patience
-        assert lr == cfg.learning_rate
-        assert lr_lambda == cfg.lr_lambda
+        assert config is cfg
         return dummy_model, dummy_label, dummy_scores, dummy_test_data
 
     monkeypatch.setattr(tm, "run_training", fake_run_training)
@@ -347,7 +370,8 @@ def test_main_pipeline_with_mocks(monkeypatch):
     assert results["label"] is dummy_label
     assert results["test_scores"] is dummy_scores
     assert results["test_data"] is dummy_test_data
-    assert results["metrics"] == {"AUC": 0.9, "PR_AUC": 0.8}
+    assert results["metrics"]["AUC_mean"] == 0.9
+    assert results["metrics"]["PR_AUC_mean"] == 0.8
 
 
 @pytest.mark.slow
@@ -357,17 +381,22 @@ def test_run_training_smoke_cpu_small_epochs():
     np.random.seed(0)
 
     ddi = _toy_ddi_df(num_pos=12, num_neg=12)
-    cfg = Config(take_negative_samples=True, seed=0)
-    data, _ = get_graph_data(ddi, feature_type="GPT+Desc", feature_path="__ONES__", config=cfg)
+    cfg = Config()
+    cfg.graph.feature = "__ONES__"
+    cfg.run.take_negative_samples = True
+    cfg.run.balanced_labels = True
+    cfg.training.seed = 0
+    cfg.training.epochs = 4
+    cfg.training.patience = 2
+    cfg.training.learning_rate = 1e-3
+    cfg.training.lr_lambda = 0.99
+    data, _ = get_graph_data(ddi, cfg)
 
     device = torch.device("cpu")
     model, label, scores, test_data = run_training(
+        cfg,
         data,
         device,
-        epochs=4,
-        patience=2,
-        lr=1e-3,
-        lr_lambda=0.99,
     )
 
     assert isinstance(model, Net)

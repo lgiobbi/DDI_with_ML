@@ -1,53 +1,73 @@
+from dataclasses import dataclass, field
+from typing import Dict, List, Optional
+
 BASE_PATH_FEATURES = "/data/giobbi/embeddings/"
-AVAILABLE_FEATURES = ["DESC_GPT", "SMILES_GPT"]
+AVAILABLE_FEATURES: List[str] = ["DESC_GPT", "SMILES_GPT"]
 
 
-class Config:
-    def __init__(
-        self,
-        current_graph="CRESCENDDI",
-        feature="DESC_GPT",
-        take_negative_samples=False,
-        repetitions=1,
-        epochs=100,
-        patience=10,
-        learning_rate=0.0003,
-        lr_lambda=0.96,
-        seed=None,
-        seed_graph_sampling=32,
-    ):
-        self.feature = feature
-        self.repetitions = repetitions
+@dataclass
+class RunSettings:
+    """Current run settings."""
 
-        self.learning_rate = learning_rate
-        self.epochs = epochs
-        self.patience = patience
-        self.lr_lambda = lr_lambda
+    take_negative_samples: bool = False
+    balanced_labels: bool = False
+    imbalanced_loss: bool = False
 
-        # current settings
-        self.current_graph = current_graph
-        self.take_negative_samples = take_negative_samples
-        self.seed = seed
-        self.seed_graph_sampling = seed_graph_sampling
 
-        # column names
-        self.col_name_drug_id = "Drug ID"
+@dataclass
+class GraphParams:
+    """Graph-related configuration."""
 
-        self.available_graphs = {
+    current_graph: str = "CRESCENDDI"
+    feature: str = "DESC_GPT"
+    col_name_drug_id: str = "Drug ID"
+
+    seed_graph_sampling: int = 32
+
+    available_graphs: Dict[str, str] = field(
+        default_factory=lambda: {
             "DrugBank": "/data/giobbi/GRAPH/drugbank_graph.csv",  # "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv",
             "positive_edges_CRESCENDDI": "/data/giobbi/CRESCENDDI/positive_edges_CRESCENDDI.csv",
-            "CRESCENDDI": "/data/giobbi/CRESCENDDI/CRESCENDDI_wo_contradiction.csv",  # Exclude DB positives from negatives     "/data/giobbi/CRESCENDDI/CRESCENDDI.csv",
+            "CRESCENDDI": "/data/giobbi/CRESCENDDI/CRESCENDDI_wo_contradiction.csv",
         }
+    )
 
     @property
-    def _available_features(self):
+    def available_features(self) -> List[str]:
         combinations = [
             f1 + "_+_" + f2 for i, f1 in enumerate(AVAILABLE_FEATURES) for f2 in AVAILABLE_FEATURES[i:] if f1 != f2
         ]
         return AVAILABLE_FEATURES + ["__ONES__"] + combinations
 
     @property
-    def feature_path(self):
-        if self.feature not in self._available_features:
-            raise ValueError(f"Feature '{self.feature}' is not among available features: {self._available_features}")
+    def feature_path(self) -> str:
+        if self.feature not in self.available_features:
+            raise ValueError(f"Feature '{self.feature}' is not among available features: {self.available_features}")
         return BASE_PATH_FEATURES + self.feature + ".csv"
+
+@dataclass
+class TrainingParams:
+    """Training-related configuration."""
+
+    learning_rate: float = 0.0003
+    epochs: int = 100
+    patience: int = 10
+    lr_lambda: float = 0.96
+    repetitions: int = 1
+    seed: Optional[int] = None
+
+
+@dataclass
+class Config:
+    """Top-level configuration object composed of grouped params.
+
+    Usage examples:
+        cfg = Config()
+        cfg.graph.current_graph = "CRESCENDDI"
+        cfg.training.learning_rate = 1e-3
+        cfg.features.feature = "DESC_GPT"
+    """
+
+    graph: GraphParams = field(default_factory=GraphParams)
+    training: TrainingParams = field(default_factory=TrainingParams)
+    run: RunSettings = field(default_factory=RunSettings)
