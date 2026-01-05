@@ -1,6 +1,10 @@
 # %%
+import csv
+from datetime import datetime
 import warnings
 from typing import Tuple
+import logging
+
 
 import numpy as np
 import pandas as pd
@@ -13,42 +17,14 @@ from torch_geometric.transforms import RandomLinkSplit
 from torch_geometric.utils import structured_negative_sampling
 
 from ddi_graph_neural_network.model import Net
-from ddi_graph_neural_network.data_utils import (
-    intersect_graph_and_embeddings,
-    get_features_and_edges_constant,
-    get_features_and_edges,
-)
+from ddi_graph_neural_network.data_utils import get_graph_data
+
+
+from ddi_graph_neural_network.config import Config
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
-LR_LAMBDA = 0.96
-AVAILABLE_GRAPHS = {
-    "ChCh_Miner": "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv",
-    "positive_edges_CRESCENDDI": "/data/giobbi/CRESCENDDI/positive_edges_CRESCENDDI.csv",
-    "CRESCENDDI": "/data/giobbi/CRESCENDDI/CRESCENDDI.csv",
-}
-
-CURRENT_GRAPH = "CRESCENDDI"
-
-# Features
-FEATURES = {
-    "GPT+Desc": "/data/giobbi/embeddings/Dr_Desc_GPT.csv",
-    # "SMILES_GPT": "/data/giobbi/embeddings/SMILES_GPT.csv",
-    # "NoFeat (Ones)": "__ONES__",
-}
-
-DRUG_ID_NAME_MAP = {
-    "GPT+Desc": "Drug ID",
-    "SMILES_GPT": "DrugBank ID",
-}
-
-
-seed = 41
-torch.manual_seed(seed)
-np.random.seed(seed)
-# torch.backends.cudnn.deterministic = True
-# torch.backends.cudnn.benchmark = False
-torch_geometric.seed_everything(seed)
+logger = logging.getLogger(__name__)
 
 
 def train(
@@ -158,7 +134,9 @@ def combine_splits(pos_split, neg_split):
     neg_split.edge_label = torch.zeros_like(neg_split.edge_label)
 
     # Concatenate supervision edges and labels
-    combined_split.edge_label_index = torch.cat([pos_split.edge_label_index, neg_split.edge_label_index], dim=-1)
+    combined_split.edge_label_index = torch.cat(
+        [pos_split.edge_label_index, neg_split.edge_label_index], dim=-1
+    )
     combined_split.edge_label = torch.cat([pos_split.edge_label, neg_split.edge_label], dim=0)
 
     return combined_split
@@ -176,8 +154,10 @@ def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
     # Todo: check if data.y does not exist if "label" column is not in the original dataframe
     if hasattr(data, "y") and data.y is not None:
         # positive samples
-        positive_mask = data.y != 30
-        positive_data = Data(x=data.x, edge_index=data.edge_index[:, positive_mask])  # , y=data.y[positive_mask])
+        positive_mask = data.y == 1
+        positive_data = Data(
+            x=data.x, edge_index=data.edge_index[:, positive_mask]
+        )  # , y=data.y[positive_mask])
         positive_transform = RandomLinkSplit(
             num_val=0.2,
             num_test=0.2,
@@ -190,7 +170,9 @@ def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
 
         # negative samples
         negative_mask = data.y == 0
-        negative_data = Data(x=data.x, edge_index=data.edge_index[:, negative_mask])  # , y=data.y[negative_mask])
+        negative_data = Data(
+            x=data.x, edge_index=data.edge_index[:, negative_mask]
+        )  # , y=data.y[negative_mask])
         negative_transform = RandomLinkSplit(
             num_val=0.2,
             num_test=0.2,
@@ -231,6 +213,7 @@ def run_training(
     epochs: int = 100,
     patience: int = 10,
     lr: float = 0.0003,
+    lr_lambda: float = 0.96,
 ) -> Tuple[Net, np.ndarray, np.ndarray]:
     """Train a GNN model on the provided data.
 
@@ -245,8 +228,6 @@ def run_training(
     Returns:
         Tuple[Net, np.ndarray, np.ndarray]: The trained GNN model and the corresponding labels and scores.
     """
-    print("-------------------------------")
-    print(f"Training with LR: {lr}")
 
     train_data, val_data, test_data = data_split_with_labels(data)
 
@@ -259,7 +240,7 @@ def run_training(
     # Initialize model, optimizer, scheduler, and loss function
     model = Net(data.num_features, 256, 256).to(device)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=lr)
-    scheduler = MultiplicativeLR(optimizer, lr_lambda=lambda epoch: LR_LAMBDA)
+    scheduler = MultiplicativeLR(optimizer, lr_lambda=lambda epoch: lr_lambda)
     criterion = torch.nn.BCEWithLogitsLoss()
 
     # Training loop with early stopping
@@ -292,9 +273,9 @@ def run_training(
             best_model_state = model.state_dict()
         else:
             wait += 1
-        print(f"Epoch: {epoch:03d}, Loss: {loss:.4f}, Val: {val_auc:.4f}")
+        # print(f"Epoch: {epoch:03d}, Loss: {loss:.4f}, Val: {val_auc:.4f}")
         if wait >= patience:
-            print(f"Early stopping at epoch {epoch}")
+            logger.debug(f"Early stopping at epoch {epoch}")
             break
 
     if best_model_state is not None:
@@ -307,83 +288,140 @@ def run_training(
     return model, test_label, best_test_scores, test_data
 
 
-# construct graph_data object from features and edge_index
-def get_graph_data(DDI_df: pd.DataFrame, feature_type: str, feature_path: str) -> Data:
-    """Construct a PyTorch Geometric Data object from DDI dataframe and features.
-
-    Args:
-        DDI_df (pd.DataFrame): DataFrame containing drug-drug interactions.
-        feature_type (str): Type of features to use.
-        feature_path (str): Path to the feature file or special token for constant features.
-
-    Returns:
-        Data: A PyTorch Geometric Data object containing the graph data.
-    """
-    DDI_df = DDI_df.copy()
-
-    # extract features and edge_index
-    if feature_path == "__ONES__":
-        features, edge_index = get_features_and_edges_constant(DDI_df, feature_value=1.0, feature_dim=1)
-    else:
-        emb = pd.read_csv(feature_path, sep="\t", index_col=0).dropna()
-        # global node_id_map
-        # global inverted_node_id_map
-
-        # def get_inverted_node_id_map(node_id_map) -> dict:
-        #    inverted_map = {v: k for k, v in node_id_map.items()}
-        #    return inverted_map
-
-        DDI_df, emb, node_id_map = intersect_graph_and_embeddings(DDI_df, emb, DRUG_ID_NAME_MAP[feature_type])
-        features, edge_index = get_features_and_edges(DDI_df, emb, node_id_map)
-        # inverted_node_id_map = get_inverted_node_id_map(node_id_map)
-
-    labels = torch.tensor(DDI_df["label"].values, dtype=torch.float32) if "label" in DDI_df.columns else None
-
-    return Data(x=features, edge_index=edge_index, y=labels)
-
-
-def main():
+def main(config: Config = Config()) -> dict:
     """Train and evaluate GNN models on DDI data.
 
     Returns:
         dict: A dictionary containing the results of the training.
     """
-    print("Current graph:", CURRENT_GRAPH)
+    if config.seed is not None:
+        torch.manual_seed(config.seed)
+        np.random.seed(config.seed)
+        torch_geometric.seed_everything(config.seed)
+        # torch.backends.cudnn.deterministic = True
+        # torch.backends.cudnn.benchmark = False
+
+    print("Current graph:", config.current_graph)
     DDI_df = pd.read_csv(
-        AVAILABLE_GRAPHS[CURRENT_GRAPH],
+        config.available_graphs[config.current_graph],
         sep="\t",
     ).rename(columns={"Drug1": "src", "Drug2": "dst"})
 
+    # shuffle the dataframe
+    DDI_df = DDI_df.sample(frac=1, random_state=config.seed).reset_index(drop=True)  # , random_state=10
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    epochs = 100
-    LR = [0.0003]
-
     results = {}
-    for feature_type, feature_path in FEATURES.items():
-        graph_data = get_graph_data(DDI_df, feature_type, feature_path)
+    AUC_bucket = []
+    PR_bucket = []
+    graph_data, node_id_map = get_graph_data(DDI_df, config)
 
-        for lr in LR:
-            print(f"======== {feature_type} | LR: {lr} ========")
-            model, label, best_scores, test_data = run_training(graph_data, device, epochs=epochs, lr=lr)
-            metrics = get_metrics(label, best_scores)
+    print(f"======== {config.feature} ========")
+    for i in range(config.repetitions):
+        logger.debug(f"Run {i + 1}/{config.repetitions} for {config.feature} | LR: {config.learning_rate}")
+        model, label, test_scores, test_data = run_training(
+            graph_data,
+            device,
+            epochs=config.epochs,
+            lr=config.learning_rate,
+            patience=config.patience,
+            lr_lambda=config.lr_lambda,
+        )
+        metrics = get_metrics(label, test_scores)
+        AUC_bucket.append(metrics["AUC"])
+        PR_bucket.append(metrics["PR_AUC"])
 
-            results[(feature_type, lr)] = {
-                "model": model,
-                "data": graph_data,
-                "metrics": metrics,
-                "label": label,
-                "best_scores": best_scores,
-                "test_data": test_data,
-            }
+    print("-------------------------------")
+    print(f"-- FINAL RESULTS FOR GRAPH {config.current_graph} | FEATURE {config.feature} -- ")
+    print("Graph Data: ", config.current_graph)
+    print(f"ROC_AUC: {np.mean(AUC_bucket):.4f}")
+    print(f"PR_AUC: {np.mean(PR_bucket):.4f}")
 
-    for key, value in results.items():
-        print(f"Model: {key[0]}, LR: {key[1]}, Metrics: {value['metrics']}")
+    if config.repetitions > 1:
+        print(f"std ROC_AUC: {np.std(AUC_bucket):.4f}")
+        print(f"std PR_AUC: {np.std(PR_bucket):.4f}")
+        print(f"repetitions: {config.repetitions}")
+        print("-------------------------------")
 
-    return results  # locals()
+    metrics = {
+        "AUC_mean": np.mean(AUC_bucket),
+        "AUC_std": np.std(AUC_bucket),
+        "PR_AUC_mean": np.mean(PR_bucket),
+        "PR_AUC_std": np.std(PR_bucket),
+        "repetitions": config.repetitions,
+    }
+
+    results = {
+        "config": config,
+        "model": model,
+        "data": graph_data,
+        "metrics": metrics,
+        "label": label,
+        "test_scores": test_scores,
+        "test_data": test_data,
+        "node_id_map": node_id_map,
+    }
+    return results
 
 
 if __name__ == "__main__":
-    main()
+    logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
+    feauture_list = ["__ONES__", "SMILES_GPT", "DESC_GPT", "DESC_GPT" + "_+_" + "SMILES_GPT"]
+    graph_list = [
+        (
+            "DrugBank",
+            False,
+        ),
+        ("CRESCENDDI", True),
+        ("CRESCENDDI", False),
+    ]
 
+    datestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+    # create a csv file to store results
+    with open(f"training_results/training_results_{datestamp}.csv", "w") as f:
+        writer = csv.writer(f)
+        writer.writerow(
+            [
+                "Feature",
+                "Graph",
+                "Negative Samples",
+                "AUC_mean",
+                "PR_AUC_mean",
+                "AUC_std",
+                "PR_AUC_std",
+                "Repetitions",
+            ]
+        )
+
+    start = datetime.now()
+    for graph, neg_sample in graph_list:
+        for feature in feauture_list:
+            print("\n================================")
+            print(f"Running feature set: {feature}, Graph: {graph}, Negative Samples: {neg_sample}")
+            config = Config(
+                take_negative_samples=neg_sample, feature=feature, current_graph=graph, repetitions=5
+            )
+            results = main(config)
+            # write setup and results to a csv file
+
+            with open(f"training_results/training_results_{datestamp}.csv", "a") as f:
+                writer = csv.writer(f)
+                writer.writerow(
+                    [
+                        feature,
+                        graph,
+                        neg_sample,
+                        results["metrics"]["AUC_mean"],
+                        results["metrics"]["PR_AUC_mean"],
+                        results["metrics"]["AUC_std"],
+                        results["metrics"]["PR_AUC_std"],
+                        results["metrics"]["repetitions"],
+                    ]
+                )
+
+            print("================================\n")
+    end = datetime.now()
+    print("Total runtime:", end - start)
 
 # %%

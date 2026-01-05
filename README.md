@@ -12,17 +12,35 @@ Our experiments reveal that the utilization of language-based drug embeddings in
 
 
 # 1. Requirements
-You need to have `Python >= 3.8` and install the following main packages:
+You need `Python >= 3.8` and a recent PyTorch. This repo uses PyTorch Geometric (PyG) with optional C-extensions for speed. To avoid import warnings and ensure the extensions match your installed Torch build, follow the steps below.
+
+## 1.1 Create and activate a virtualenv (example)
 ```
-!pip install torch_geometric
-!pip install pyg_lib torch_scatter torch_sparse torch_cluster torch_spline_conv -f https://data.pyg.org/whl/torch-2.0.0+cpu.html
-!pip install dgl
-!pip install rdkit
-!pip install deepchem
-!pip install gensim
-!pip install git+https://github.com/samoturk/mol2vec
-!pip install transformers
-!pip install openai
+python -m venv .venv
+source .venv/bin/activate
+```
+
+## 1.2 Install core dependencies
+```
+pip install -r requirements.txt
+```
+
+## 1.3 Install PyG extensions that match your Torch build
+Use the helper script to automatically detect your Torch version/CUDA build and install the matching wheels from data.pyg.org. This prevents warnings like "An issue occurred while importing 'torch-sparse'... undefined symbol".
+
+```
+python scripts/install_pyg_extensions.py
+```
+
+If you prefer to do it manually, replace <TORCH_VER> and <BUILD> with your torch version and build tag (e.g., 2.8.0 and cu128 or cpu):
+```
+pip install pyg-lib torch-scatter torch-sparse torch-cluster torch-spline-conv \
+  -f https://data.pyg.org/whl/torch-<TORCH_VER>+<BUILD>.html
+```
+
+Additional packages often used in notebooks (optional):
+```
+pip install dgl rdkit deepchem gensim git+https://github.com/samoturk/mol2vec transformers
 ```
 # 2. Pipeline
 * 2.1. [**Language-based Drug Information Embedding**](https://github.com/sshaghayeghs/DDI-LLM/tree/main/Get%20Embedding)

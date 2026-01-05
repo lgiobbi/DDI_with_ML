@@ -2,9 +2,16 @@ from typing import Tuple
 import numpy as np
 import pandas as pd
 import torch
+import logging
+
+from torch_geometric.utils import coalesce
+from torch_geometric.data import Data
+from ddi_graph_neural_network.config import Config
 
 KEPT_PERC_NOT_IN_GRAPH = 0.0  # Percentage of drugs not in graph to keep
 
+logger = logging.getLogger(__name__)
+#logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def get_node_id_map(DDI_graph: pd.DataFrame) -> dict:
     """Get a mapping from drug IDs to node indices.
@@ -74,6 +81,8 @@ def intersect_graph_and_embeddings(
     Returns:
         Tuple[pd.DataFrame, pd.DataFrame, dict]: The aligned DDI graph, embeddings, and node ID mapping.
     """
+    number_of_graph_drugs_not_in_emb = len(set(DDI_graph["src"]).union(set(DDI_graph["dst"])) - set(emb[drug_id_col])) 
+
     DDI_graph = DDI_graph[
         DDI_graph["src"].isin(emb[drug_id_col]) & DDI_graph["dst"].isin(emb[drug_id_col])
     ].reset_index(drop=True)
@@ -93,6 +102,16 @@ def intersect_graph_and_embeddings(
     not_in_graph = emb.loc[~emb.index.isin(DrugIDs_in_graph)]
 
     kept_n_not_in_graph = int(len(not_in_graph) * KEPT_PERC_NOT_IN_GRAPH / 100.0)
+
+    logger.debug(
+        "Graph and Embeddings Intersection Summary:\n"
+        f"Number of drugs in graph: {len(DrugIDs_in_graph)}, \n"
+        f"Number of embedding drugs in graph: {len(in_graph)}, \n"
+        f"Number of drugs dropped from graph (not in embeddings): {number_of_graph_drugs_not_in_emb}, \n"
+        f"Number of embedding drugs not in graph: {len(not_in_graph)}\n"
+        f"Kept percentage of embedding drugs not in graph: {KEPT_PERC_NOT_IN_GRAPH}%, \n"
+    )    
+
     not_in_graph = not_in_graph.iloc[:kept_n_not_in_graph, :]
 
     # Stack: first those in graph (in order), then the rest
@@ -158,3 +177,67 @@ def get_features_and_edges_constant(
     edge_index = torch.tensor(edge_index).t().contiguous()
 
     return features, edge_index
+
+# construct graph_data object from features and edge_index
+def get_graph_data(DDI_df: pd.DataFrame, config: Config) -> Data:
+    """Construct a PyTorch Geometric Data object from DDI dataframe and features.
+
+    Args:
+        DDI_df (pd.DataFrame): DataFrame containing drug-drug interactions.
+        feature_type (str): Type of features to use.
+
+    Returns:
+        Data: A PyTorch Geometric Data object containing the graph data.
+    """
+    feature_type = config.feature
+    DDI_df = DDI_df.copy()
+
+    # extract features and edge_index
+    if feature_type == "__ONES__":
+        node_id_map = get_node_id_map(DDI_df)
+        features, edge_index = get_features_and_edges_constant(DDI_df, feature_value=1.0, feature_dim=1)
+    else:
+        emb = pd.read_csv(config.feature_path, sep="\t", index_col=0).dropna()
+        DDI_df, emb, node_id_map = intersect_graph_and_embeddings(DDI_df, emb, config.col_name_drug_id)
+        features, edge_index = get_features_and_edges(DDI_df, emb, node_id_map)
+        # inverted_node_id_map = get_inverted_node_id_map(node_id_map)
+
+    labels = torch.tensor(DDI_df["label"].values, dtype=torch.float32) if "label" in DDI_df.columns else None
+
+    # edge_index = edge_index[:, labels == 1]
+    # labels = None
+
+    if labels is not None:
+        pos_mask = labels == 1
+        neg_mask = labels == 0
+        min_count = min(pos_mask.sum().item(), neg_mask.sum().item())
+
+        # Get indices for balanced set
+        pos_indices = torch.where(pos_mask)[0][:min_count]
+        neg_indices = torch.where(neg_mask)[0][:min_count]
+        balanced_indices = torch.cat([pos_indices, neg_indices]) if config.take_negative_samples else pos_indices
+
+        # Shuffle for randomness
+        # balanced_indices = balanced_indices[torch.randperm(len(balanced_indices))]
+
+        # Select balanced edge_index and labels
+        edge_index = edge_index[:, balanced_indices]
+        labels = labels[balanced_indices] if config.take_negative_samples else None
+        logger.debug(
+            f"Balancing the dataset to have equal positive and negative samples. \n"
+            f"Dropped positive edges: {pos_mask.sum().item() - min_count}, \n"
+            f"Dropped negative edges: {neg_mask.sum().item() - min_count}, \n"
+        )
+
+    # Ensure canonical edge order (sorted by source, then dest) to make results invariant to input shuffle
+    if labels is not None:
+        edge_index, labels = coalesce(edge_index, labels, len(node_id_map))
+    else:
+        edge_index = coalesce(edge_index, num_nodes=len(node_id_map))
+
+    logger.debug(f"Final graph has {features.size(0)} nodes and {edge_index.size(1)} edges.\n"
+                f"Positive edges: {int(labels.sum().item()) if labels is not None else edge_index.size(1)}, \n"
+                f"Negative edges: {int((labels == 0).sum().item()) if labels is not None else 0}"
+                )
+
+    return Data(x=features, edge_index=edge_index, y=labels), node_id_map
