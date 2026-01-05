@@ -184,6 +184,7 @@ def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
 
         return train_data, val_data, test_data
     else:
+        logger.debug(f"No negative edges in the graph data. Sampling {data.edge_index.shape[1]} negative edges.")
         transform = RandomLinkSplit(
             num_val=0.2,
             num_test=0.2,
@@ -234,7 +235,7 @@ def run_training(
     if config.run.imbalanced_loss:
         num_positives = (train_data.edge_label == 1).sum().item()
         num_negatives = (train_data.edge_label == 0).sum().item()
-        pos_weight = torch.tensor([num_negatives / num_positives], device=device)
+        pos_weight = torch.tensor([num_negatives / (num_positives)], device=device)
 
         logger.debug(f"Using imbalanced loss with pos_weight: {pos_weight.item():.4f}")
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
@@ -369,6 +370,11 @@ if __name__ == "__main__":
     config.run.take_negative_samples = True
     config.run.balanced_labels = False
     config.run.imbalanced_loss = True
+
+    config.training.seed = 42
+
+    config.graph.seed_graph_sampling = 42
+    config.graph.current_graph = "DrugBank_CRESCENDDI"
 
     main(config)
 

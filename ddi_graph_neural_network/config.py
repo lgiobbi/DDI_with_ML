@@ -29,6 +29,7 @@ class GraphParams:
             "DrugBank": "/data/giobbi/GRAPH/drugbank_graph.csv",  # "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv",
             "positive_edges_CRESCENDDI": "/data/giobbi/CRESCENDDI/positive_edges_CRESCENDDI.csv",
             "CRESCENDDI": "/data/giobbi/CRESCENDDI/CRESCENDDI_wo_contradiction.csv",
+            "DrugBank_CRESCENDDI": "/data/giobbi/GRAPH/drugbank_crescenddi_graph_wo_contradiction.csv",
         }
     )
 

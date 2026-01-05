@@ -204,30 +204,33 @@ def get_graph_data(DDI_df: pd.DataFrame, config: Config) -> Data:
 
     labels = torch.tensor(DDI_df["label"].values, dtype=torch.float32) if "label" in DDI_df.columns else None
 
-    # edge_index = edge_index[:, labels == 1]
-    # labels = None
-
-    if labels is not None and config.run.balanced_labels:
+    # If labels are present, optionally balance positives/negatives and/or drop explicit negatives
+    if labels is not None:
         pos_mask = labels == 1
         neg_mask = labels == 0
-        min_count = min(pos_mask.sum().item(), neg_mask.sum().item())
 
-        # Get indices for balanced set
-        pos_indices = torch.where(pos_mask)[0][:min_count]
-        neg_indices = torch.where(neg_mask)[0][:min_count]
-        balanced_indices = torch.cat([pos_indices, neg_indices]) if config.run.take_negative_samples else pos_indices
+        pos_indices = torch.where(pos_mask)[0]
+        neg_indices = torch.where(neg_mask)[0]
 
-        # Shuffle for randomness
-        # balanced_indices = balanced_indices[torch.randperm(len(balanced_indices))]
+        if config.run.balanced_labels:
+            min_count = min(pos_mask.sum().item(), neg_mask.sum().item())
+            pos_indices = pos_indices[:min_count]
+            neg_indices = neg_indices[:min_count]
+            logger.debug(
+                f"Balancing the dataset to have equal positive and negative samples. \n"
+                f"Dropped positive edges: {pos_mask.sum().item() - min_count}, \n"
+                f"Dropped negative edges: {neg_mask.sum().item() - min_count}, \n"
+            )
 
-        # Select balanced edge_index and labels
-        edge_index = edge_index[:, balanced_indices]
-        labels = labels[balanced_indices] if config.run.take_negative_samples else None
-        logger.debug(
-            f"Balancing the dataset to have equal positive and negative samples. \n"
-            f"Dropped positive edges: {pos_mask.sum().item() - min_count}, \n"
-            f"Dropped negative edges: {neg_mask.sum().item() - min_count}, \n"
-        )
+        if config.run.take_negative_samples:
+            selected_indices = torch.cat([pos_indices, neg_indices])
+            labels = labels[selected_indices]
+        else:
+            logger.debug(f"Taking only positive samples. \nDropped negative edges: {neg_indices.numel()}, \n")
+            selected_indices = pos_indices
+            labels = None
+
+        edge_index = edge_index[:, selected_indices]
 
     # Ensure canonical edge order (sorted by source, then dest) to make results invariant to input shuffle
     if labels is not None:
