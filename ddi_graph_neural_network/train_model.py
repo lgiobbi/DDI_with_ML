@@ -134,9 +134,7 @@ def combine_splits(pos_split, neg_split):
     neg_split.edge_label = torch.zeros_like(neg_split.edge_label)
 
     # Concatenate supervision edges and labels
-    combined_split.edge_label_index = torch.cat(
-        [pos_split.edge_label_index, neg_split.edge_label_index], dim=-1
-    )
+    combined_split.edge_label_index = torch.cat([pos_split.edge_label_index, neg_split.edge_label_index], dim=-1)
     combined_split.edge_label = torch.cat([pos_split.edge_label, neg_split.edge_label], dim=0)
 
     return combined_split
@@ -155,9 +153,7 @@ def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
     if hasattr(data, "y") and data.y is not None:
         # positive samples
         positive_mask = data.y == 1
-        positive_data = Data(
-            x=data.x, edge_index=data.edge_index[:, positive_mask]
-        )  # , y=data.y[positive_mask])
+        positive_data = Data(x=data.x, edge_index=data.edge_index[:, positive_mask])  # , y=data.y[positive_mask])
         positive_transform = RandomLinkSplit(
             num_val=0.2,
             num_test=0.2,
@@ -170,9 +166,7 @@ def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
 
         # negative samples
         negative_mask = data.y == 0
-        negative_data = Data(
-            x=data.x, edge_index=data.edge_index[:, negative_mask]
-        )  # , y=data.y[negative_mask])
+        negative_data = Data(x=data.x, edge_index=data.edge_index[:, negative_mask])  # , y=data.y[negative_mask])
         negative_transform = RandomLinkSplit(
             num_val=0.2,
             num_test=0.2,
@@ -308,7 +302,7 @@ def main(config: Config = Config()) -> dict:
     ).rename(columns={"Drug1": "src", "Drug2": "dst"})
 
     # shuffle the dataframe
-    DDI_df = DDI_df.sample(frac=1, random_state=config.seed).reset_index(drop=True)  # , random_state=10
+    DDI_df = DDI_df.sample(frac=1, random_state=config.seed_graph_sampling).reset_index(drop=True)  # , random_state=10
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     results = {}
@@ -399,9 +393,7 @@ if __name__ == "__main__":
         for feature in feauture_list:
             print("\n================================")
             print(f"Running feature set: {feature}, Graph: {graph}, Negative Samples: {neg_sample}")
-            config = Config(
-                take_negative_samples=neg_sample, feature=feature, current_graph=graph, repetitions=5
-            )
+            config = Config(take_negative_samples=neg_sample, feature=feature, current_graph=graph, repetitions=5)
             results = main(config)
             # write setup and results to a csv file
 
