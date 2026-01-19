@@ -1,6 +1,4 @@
 # %%
-import csv
-from datetime import datetime
 import warnings
 from typing import Tuple
 import logging
@@ -220,7 +218,6 @@ def run_training(
 
     train_data, val_data, test_data = data_split_with_labels(data)
 
-
     # get drug names of 700th edge index
     # idx = 6010
     # train_data = train_data.to(device)
@@ -235,9 +232,10 @@ def run_training(
     if config.run.imbalanced_loss:
         num_positives = (train_data.edge_label == 1).sum().item()
         num_negatives = (train_data.edge_label == 0).sum().item()
-        pos_weight = torch.tensor([num_negatives / (num_positives)], device=device)
+        imbalance_neg_over_pos = torch.tensor([num_negatives / (num_positives)], device=device)
+        pos_weight = imbalance_neg_over_pos * config.run.pos_loss_multiplier
 
-        logger.debug(f"Using imbalanced loss with pos_weight: {pos_weight.item():.4f}")
+        logger.debug(f"Using imbalanced loss with pos_weight: {(pos_weight.item()):.4f}")
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     else:
         criterion = torch.nn.BCEWithLogitsLoss()
@@ -376,6 +374,9 @@ if __name__ == "__main__":
     config.graph.seed_graph_sampling = 42
     config.graph.current_graph = "DrugBank_CRESCENDDI"
 
-    main(config)
+    for fac in [0.25, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0, 2.5]:
+        config.run.pos_loss_multiplier = fac
+        print(f"\n=== Running with pos_loss_multiplier: {fac} ===")
+        main(config)
 
 # %%

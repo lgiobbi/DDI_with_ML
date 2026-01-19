@@ -12,6 +12,7 @@ class RunSettings:
     take_negative_samples: bool = False
     balanced_labels: bool = False
     imbalanced_loss: bool = False
+    pos_loss_multiplier: float = 1.0
 
 
 @dataclass
