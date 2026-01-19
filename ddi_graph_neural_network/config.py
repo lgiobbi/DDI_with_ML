@@ -1,18 +1,40 @@
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
+from enum import Enum
 
 BASE_PATH_FEATURES = "/data/giobbi/embeddings/"
 AVAILABLE_FEATURES: List[str] = ["DESC_GPT", "SMILES_GPT"]
+
+class LossType(Enum):
+    """Types of loss functions available."""
+
+    BCEWithLogitsLoss = "BCEWithLogitsLoss"
+    FocalLoss = "FocalLoss"
+    WeightedBCEWithLogitsLoss = "WeightedBCEWithLogitsLoss"
 
 
 @dataclass
 class RunSettings:
     """Current run settings."""
 
-    take_negative_samples: bool = False
-    balanced_labels: bool = False
-    imbalanced_loss: bool = False
-    pos_loss_multiplier: float = 1.0
+    take_negative_samples: bool = False  # If graph has negative samples, whether to include them
+    balanced_labels: bool = (
+        False  # If graph has negative samples, whether to balance pos/neg samples to min(num_pos, num_neg)
+    )
+
+    loss_type: LossType = LossType.BCEWithLogitsLoss
+
+    # WeightedBCEWithLogitsLoss and FocalLoss specific parameters
+
+    # Multiplier for positive class in WeightedBCEWithLogitsLoss.
+    # Loss of positive samples *= pos_loss_multiplier * (num_negatives / num_positives)
+    pos_loss_multiplier: float = 0.5
+
+    # FocalLoss specific parameters
+    # focal_loss_alpha: float = 0.25  # Alpha > 1 increases (< 1 decreases) the importance of positive samples
+    focal_loss_gamma: float = (
+        2.0  # Reduce the relative loss for well-classified examples. 0.0 is equivalent to WeightedBCEWithLogitsLoss
+    )
 
 
 @dataclass

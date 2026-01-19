@@ -7,22 +7,34 @@ import logging
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 from sklearn.metrics import auc, precision_recall_curve, roc_auc_score
 from torch.optim.lr_scheduler import MultiplicativeLR
 import torch_geometric
 from torch_geometric.data import Data
 from torch_geometric.transforms import RandomLinkSplit
 from torch_geometric.utils import structured_negative_sampling
-
+from torchvision.ops import sigmoid_focal_loss
 from ddi_graph_neural_network.model import Net
 from ddi_graph_neural_network.data_utils import get_graph_data
 
 
-from ddi_graph_neural_network.config import Config
+from ddi_graph_neural_network.config import Config, LossType
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
+
+class SigmoidFocalLoss(nn.Module):
+    def __init__(self, alpha: float = 0.25, gamma: float = 2.0, reduction: str = "mean"):
+        super(SigmoidFocalLoss, self).__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+        self.reduction = reduction
+
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        loss = sigmoid_focal_loss(logits, targets, alpha=self.alpha, gamma=self.gamma, reduction=self.reduction)
+        return loss
 
 
 def train(
@@ -199,6 +211,31 @@ def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
         train_data.edge_label = edge_label
         return train_data, val_data, test_data
 
+def get_criterion(config: Config, train_data: Data, device: torch.device) -> torch.nn.Module:
+    """Get the loss criterion based on the configuration."""
+    match config.run.loss_type:
+        case LossType.BCEWithLogitsLoss:
+            return torch.nn.BCEWithLogitsLoss()
+        case LossType.WeightedBCEWithLogitsLoss:
+            num_positives = (train_data.edge_label == 1).sum().item()
+            num_negatives = (train_data.edge_label == 0).sum().item()
+            imbalance_neg_over_pos = torch.tensor([num_negatives / (num_positives)], device=device)
+            pos_weight = imbalance_neg_over_pos * config.run.pos_loss_multiplier
+
+            logger.debug(f"Using imbalanced loss with pos_weight: {(pos_weight.item()):.4f}")
+            return torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        case LossType.FocalLoss:
+            num_positives = (train_data.edge_label == 1).sum().item()
+            num_negatives = (train_data.edge_label == 0).sum().item()
+            imbalance_neg_over_pos = torch.tensor([num_negatives / (num_positives)], device=device)
+            pos_weight = imbalance_neg_over_pos * config.run.pos_loss_multiplier
+
+            logger.debug(
+                f"Using imbalanced focal loss with pos_weight: {(pos_weight.item()):.4f}, gamma: {config.run.focal_loss_gamma}"
+            )
+            return SigmoidFocalLoss(alpha=pos_weight, gamma=config.run.focal_loss_gamma)
+        case _:
+            raise ValueError(f"Unsupported loss type: {config.run.loss_type}")
 
 def run_training(
     config: Config,
@@ -228,17 +265,7 @@ def run_training(
     model = Net(data.num_features, 256, 256).to(device)
     optimizer = torch.optim.Adam(params=model.parameters(), lr=config.training.learning_rate)
     scheduler = MultiplicativeLR(optimizer, lr_lambda=lambda epoch: config.training.lr_lambda)
-
-    if config.run.imbalanced_loss:
-        num_positives = (train_data.edge_label == 1).sum().item()
-        num_negatives = (train_data.edge_label == 0).sum().item()
-        imbalance_neg_over_pos = torch.tensor([num_negatives / (num_positives)], device=device)
-        pos_weight = imbalance_neg_over_pos * config.run.pos_loss_multiplier
-
-        logger.debug(f"Using imbalanced loss with pos_weight: {(pos_weight.item()):.4f}")
-        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    else:
-        criterion = torch.nn.BCEWithLogitsLoss()
+    criterion = get_criterion(config, train_data, device)
 
     # Training loop with early stopping
     best_val_auc: float = -float("inf")
@@ -367,16 +394,22 @@ if __name__ == "__main__":
     config = Config()
     config.run.take_negative_samples = True
     config.run.balanced_labels = False
-    config.run.imbalanced_loss = True
 
     config.training.seed = 42
-
     config.graph.seed_graph_sampling = 42
     config.graph.current_graph = "DrugBank_CRESCENDDI"
 
-    for fac in [0.25, 0.4, 0.5, 0.6, 0.8, 1.0, 1.5, 2.0, 2.5]:
-        config.run.pos_loss_multiplier = fac
-        print(f"\n=== Running with pos_loss_multiplier: {fac} ===")
-        main(config)
+    config.run.loss_type = LossType.FocalLoss
+    for pos_multiplier in [0.4, 0.5, 0.6]:
+        config.run.pos_loss_multiplier = pos_multiplier
+        for gamma in [0.0, 1.0, 5.0]:
+            config.run.focal_loss_gamma = gamma
+            results = main(config)
+            print("--------------------------------------------------")
+            print(
+                f"Focal Loss Pos Multiplier: {pos_multiplier} | Gamma: {gamma} | AUC: {results['metrics']['AUC_mean']:.4f} | PR_AUC: {results['metrics']['PR_AUC_mean']:.4f}"
+            )
+            print("--------------------------------------------------")
+
 
 # %%
