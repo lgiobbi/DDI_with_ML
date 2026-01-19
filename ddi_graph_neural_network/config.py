@@ -21,6 +21,7 @@ class RunSettings:
     balanced_labels: bool = (
         False  # If graph has negative samples, whether to balance pos/neg samples to min(num_pos, num_neg)
     )
+    upsample_negative_labels: bool = False  # Whether to upsample negative samples to balance labels
 
     loss_type: LossType = LossType.BCEWithLogitsLoss
 

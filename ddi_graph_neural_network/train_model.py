@@ -88,38 +88,6 @@ def test(model: Net, data: Data) -> Tuple[float, np.ndarray, np.ndarray]:
     return roc, label, score
 
 
-def prepare_train_labels(edge_index: torch.Tensor, num_nodes: int) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Prepare positive and negative edge labels for training.
-
-    Args:
-        edge_index (torch.Tensor): Edge indices of the graph.
-        num_nodes (int): Number of nodes in the graph.
-
-    Returns:
-        Tuple[torch.Tensor, torch.Tensor]: Edge label indices and corresponding labels.
-    """
-    struct_neg_tup = structured_negative_sampling(
-        edge_index=edge_index,
-        num_nodes=num_nodes,
-        contains_neg_self_loops=False,
-    )
-    neg_edge_index = torch.stack((struct_neg_tup[0], struct_neg_tup[2]), dim=0)
-    neg_edge_index, _ = torch.unique(neg_edge_index, dim=1, return_inverse=True)
-
-    edge_label_index = torch.cat(
-        [edge_index, neg_edge_index],
-        dim=-1,
-    )
-    edge_label = torch.cat(
-        [
-            torch.ones(edge_index.size(1)),
-            torch.zeros(neg_edge_index.size(1)),
-        ],
-        dim=0,
-    )
-    return edge_label_index, edge_label
-
-
 def get_metrics(label: np.ndarray, scores: np.ndarray) -> dict:
     """Calculate evaluation metrics based on true labels and predicted scores.
 
@@ -150,7 +118,19 @@ def combine_splits(pos_split, neg_split):
     return combined_split
 
 
-def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
+def sample_negative_edges(edge_index: torch.Tensor, num_nodes: int) -> torch.Tensor:
+    """Samples negative edges using structured negative sampling."""
+    struct_neg_tup = structured_negative_sampling(
+        edge_index=edge_index,
+        num_nodes=num_nodes,
+        contains_neg_self_loops=False,
+    )
+    neg_edge_index = torch.stack((struct_neg_tup[0], struct_neg_tup[2]), dim=0)
+    neg_edge_index, _ = torch.unique(neg_edge_index, dim=1, return_inverse=True)
+    return neg_edge_index
+
+
+def data_split_with_labels(config: Config, data: Data) -> Tuple[Data, Data, Data]:
     """Splits the data into training, validation, and test sets while preserving labels.
 
     Args:
@@ -192,6 +172,33 @@ def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
         val_data = combine_splits(pos_val, neg_val)
         test_data = combine_splits(pos_test, neg_test)
 
+        if config.run.upsample_negative_labels:
+            num_pos = (train_data.edge_label == 1).sum().item()
+            num_neg = (train_data.edge_label == 0).sum().item()
+            if num_pos < num_neg:
+                logger.debug("Not possible to upsample negative samples when positives are fewer.")
+            else:
+                neg_edge_index = sample_negative_edges(
+                    edge_index=train_data.edge_index,
+                    num_nodes=train_data.num_nodes,
+                )
+
+                num_neg_to_sample = num_pos - num_neg
+                logger.debug(f"Upsampling negative samples by {num_neg_to_sample} to balance labels.")
+                perm = torch.randperm(neg_edge_index.size(1))[:num_neg_to_sample]
+                neg_edge_index = neg_edge_index[:, perm]
+
+                edge_label_index = torch.cat([train_data.edge_label_index, neg_edge_index], dim=-1)
+                edge_label = torch.cat(
+                    [
+                        train_data.edge_label,
+                        torch.zeros(neg_edge_index.size(1)),
+                    ],
+                    dim=0,
+                )
+                train_data.edge_label_index = edge_label_index
+                train_data.edge_label = edge_label
+
         return train_data, val_data, test_data
     else:
         logger.debug(f"No negative edges in the graph data. Sampling {data.edge_index.shape[1]} negative edges.")
@@ -203,10 +210,21 @@ def data_split_with_labels(data: Data) -> Tuple[Data, Data, Data]:
             neg_sampling_ratio=1.0,
         )
         train_data, val_data, test_data = transform(data)
-        edge_label_index, edge_label = prepare_train_labels(
+        # Sample negative edges for training data
+        neg_edge_index = sample_negative_edges(
             edge_index=train_data.edge_index,
             num_nodes=train_data.num_nodes,
         )
+
+        edge_label_index = torch.cat([train_data.edge_index, neg_edge_index], dim=-1)
+        edge_label = torch.cat(
+            [
+                torch.ones(train_data.edge_index.size(1)),
+                torch.zeros(neg_edge_index.size(1)),
+            ],
+            dim=0,
+        )
+
         train_data.edge_label_index = edge_label_index
         train_data.edge_label = edge_label
         return train_data, val_data, test_data
@@ -253,7 +271,7 @@ def run_training(
         Tuple[Net, np.ndarray, np.ndarray]: The trained GNN model and the corresponding labels and scores.
     """
 
-    train_data, val_data, test_data = data_split_with_labels(data)
+    train_data, val_data, test_data = data_split_with_labels(config, data)
 
     # get drug names of 700th edge index
     # idx = 6010
@@ -392,24 +410,14 @@ def main(config: Config = Config()) -> dict:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
     config = Config()
-    config.run.take_negative_samples = True
+    config.run.take_negative_samples = False
     config.run.balanced_labels = False
+    config.run.upsample_negative_labels = True
 
     config.training.seed = 42
     config.graph.seed_graph_sampling = 42
     config.graph.current_graph = "DrugBank_CRESCENDDI"
 
-    config.run.loss_type = LossType.FocalLoss
-    for pos_multiplier in [0.4, 0.5, 0.6]:
-        config.run.pos_loss_multiplier = pos_multiplier
-        for gamma in [0.0, 1.0, 5.0]:
-            config.run.focal_loss_gamma = gamma
-            results = main(config)
-            print("--------------------------------------------------")
-            print(
-                f"Focal Loss Pos Multiplier: {pos_multiplier} | Gamma: {gamma} | AUC: {results['metrics']['AUC_mean']:.4f} | PR_AUC: {results['metrics']['PR_AUC_mean']:.4f}"
-            )
-            print("--------------------------------------------------")
-
+    run = main(config)
 
 # %%
