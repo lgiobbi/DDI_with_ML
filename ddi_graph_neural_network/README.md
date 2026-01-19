@@ -1,2 +1,2 @@
 - add pyproject.toml
-run "pip install -e ."
+run "uv pip install -e ."
