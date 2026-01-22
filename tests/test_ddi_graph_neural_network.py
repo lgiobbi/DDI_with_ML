@@ -15,12 +15,16 @@ from ddi_graph_neural_network.data_utils import (
 from ddi_graph_neural_network.model import Net
 from ddi_graph_neural_network.train_model import (
     data_split_with_labels,
-    prepare_train_labels,
     run_training,
 )
 import ddi_graph_neural_network.train_model as tm
 
 # UNIT TESTS
+
+@pytest.fixture
+def cpu_device() -> torch.device:
+    return torch.device("cpu")
+
 
 def _toy_ddi_df(num_pos: int = 6, num_neg: int = 6) -> pd.DataFrame:
     # 8 nodes, generate disjoint pos/neg edge sets deterministically
@@ -42,6 +46,20 @@ def _toy_ddi_df(num_pos: int = 6, num_neg: int = 6) -> pd.DataFrame:
 
     df = pd.DataFrame(pos_edges + neg_edges, columns=["src", "dst", "label"])
     return df
+
+
+@pytest.fixture
+def ones_graph_config() -> Config:
+    cfg = Config()
+    cfg.graph.feature = "__ONES__"
+    return cfg
+
+
+@pytest.fixture
+def balanced_labels_config(ones_graph_config: Config) -> Config:
+    cfg = ones_graph_config
+    cfg.run.balanced_labels = True
+    return cfg
 
 
 def _write_toy_embeddings_tsv(path, drug_ids) -> str:
@@ -103,39 +121,35 @@ def test_get_features_and_edges_constant_shapes_and_values():
     assert edge_index.shape == (2, 2)
 
 
-# Test get_graph_data with __ONES__ features when negatives are ignored in labels.
-def test_get_graph_data_ones_with_labels_take_negative_samples_false():
+@pytest.mark.parametrize(
+    "take_negative_samples,expected_y_is_none,expected_num_edges",
+    [
+        (False, True, 3),
+        (True, False, 6),
+    ],
+)
+def test_get_graph_data_ones_balanced_labels(
+    balanced_labels_config: Config,
+    take_negative_samples: bool,
+    expected_y_is_none: bool,
+    expected_num_edges: int,
+):
     ddi = _toy_ddi_df(num_pos=5, num_neg=3)
-    cfg = Config()
-    cfg.graph.feature = "__ONES__"
-    cfg.run.take_negative_samples = False
-    cfg.run.balanced_labels = True
+    cfg = balanced_labels_config
+    cfg.run.take_negative_samples = take_negative_samples
 
     data, node_id_map = get_graph_data(ddi, cfg)
 
-    # should keep only positives (balanced down to min(pos, neg)) and set y=None
-    assert data.y is None
+    assert (data.y is None) is expected_y_is_none
     assert data.x.shape[0] == len(node_id_map)
     assert data.edge_index.shape[0] == 2
-    assert data.edge_index.shape[1] == 3
+    assert data.edge_index.shape[1] == expected_num_edges
 
-
-# Test get_graph_data with __ONES__ features when positives/negatives are balanced.
-def test_get_graph_data_ones_with_labels_take_negative_samples_true():
-    ddi = _toy_ddi_df(num_pos=5, num_neg=3)
-    cfg = Config()
-    cfg.graph.feature = "__ONES__"
-    cfg.run.take_negative_samples = True
-    cfg.run.balanced_labels = True
-
-    data, node_id_map = get_graph_data(ddi, cfg)
-
-    assert data.y is not None
-    assert data.edge_index.shape[1] == 6
-    assert data.y.numel() == 6
-    assert int((data.y == 1).sum().item()) == 3
-    assert int((data.y == 0).sum().item()) == 3
-    assert data.x.shape[0] == len(node_id_map)
+    if take_negative_samples:
+        assert data.y is not None
+        assert data.y.numel() == expected_num_edges
+        assert int((data.y == 1).sum().item()) == expected_num_edges // 2
+        assert int((data.y == 0).sum().item()) == expected_num_edges // 2
 
 
 # Test get_graph_data reading real embeddings from a TSV file.
@@ -179,14 +193,17 @@ def test_net_forward_and_backward_smoke():
     cfg.run.balanced_labels = True
     data, _ = get_graph_data(ddi, cfg)
 
-    # Build supervision edges/labels for link prediction
-    edge_label_index, edge_label = prepare_train_labels(data.edge_index, num_nodes=data.x.size(0))
+    # Build supervision edges/labels for link prediction via the current pipeline
+    train_data, _, _ = data_split_with_labels(cfg, data)
+    edge_label_index = train_data.edge_label_index
+    edge_label = train_data.edge_label
+
     model = Net(in_channels=data.x.size(1), hidden_channels=8, out_channels=8)
 
     out = model(data.x, data.edge_index, edge_label_index)
     assert out.shape == (edge_label_index.size(1),)
 
-    loss = torch.nn.BCEWithLogitsLoss()(out, edge_label)
+    loss = torch.nn.BCEWithLogitsLoss()(out, edge_label.float())
     loss.backward()
 
     grad_sum = 0.0
@@ -194,23 +211,6 @@ def test_net_forward_and_backward_smoke():
         if p.grad is not None:
             grad_sum += float(p.grad.abs().sum().item())
     assert grad_sum > 0.0
-
-
-# Test that prepared train labels include positives/negatives and no self-loops.
-def test_prepare_train_labels_contains_negatives_and_no_self_loops():
-    torch.manual_seed(0)
-
-    edge_index = torch.tensor([[0, 1, 2], [1, 2, 3]], dtype=torch.long)
-    edge_label_index, edge_label = prepare_train_labels(edge_index=edge_index, num_nodes=5)
-
-    assert edge_label_index.shape[0] == 2
-    assert edge_label.shape[0] == edge_label_index.shape[1]
-    assert (edge_label == 1).any().item()
-    assert (edge_label == 0).any().item()
-
-    u = edge_label_index[0]
-    v = edge_label_index[1]
-    assert bool((u != v).all().item())
 
 
 # Test that data_split_with_labels produces supervision edges for all splits.
@@ -224,7 +224,7 @@ def test_data_split_with_labels_outputs_supervision_edges():
     cfg.run.balanced_labels = True
     data, _ = get_graph_data(ddi, cfg)
 
-    train_data, val_data, test_data = data_split_with_labels(data)
+    train_data, val_data, test_data = data_split_with_labels(cfg, data)
 
     for split in (train_data, val_data, test_data):
         assert hasattr(split, "edge_label_index")
@@ -235,16 +235,16 @@ def test_data_split_with_labels_outputs_supervision_edges():
         assert int((split.edge_label == 1).sum().item()) > 0
         assert int((split.edge_label == 0).sum().item()) > 0
 
-
-
-
-
+        u = split.edge_label_index[0]
+        v = split.edge_label_index[1]
+        assert bool((u != v).all().item())
 
 
 # LINKED FUNCTIONALITY TESTS
 
+
 # Test that run_training selects best validation epoch and early-stops using mocks.
-def test_run_training_uses_best_val_auc_and_early_stopping(monkeypatch):
+def test_run_training_uses_best_val_auc_and_early_stopping(monkeypatch, cpu_device: torch.device):
     cfg = Config()
     cfg.training.epochs = 5
     cfg.training.patience = 1
@@ -260,7 +260,7 @@ def test_run_training_uses_best_val_auc_and_early_stopping(monkeypatch):
     fake_val = Data()
     fake_test_data = Data()
 
-    def fake_data_split_with_labels(data):
+    def fake_data_split_with_labels(config, data):
         return fake_train, fake_val, fake_test_data
 
     monkeypatch.setattr(tm, "data_split_with_labels", fake_data_split_with_labels)
@@ -282,11 +282,15 @@ def test_run_training_uses_best_val_auc_and_early_stopping(monkeypatch):
     call_count = {"n": 0}
 
     def fake_test(model, data_split):
+        # run_training calls test() for validation and test each epoch
         epoch_idx = call_count["n"] // 2
-        if call_count["n"] % 2 == 0:
+        is_val_call = call_count["n"] % 2 == 0
+
+        if is_val_call:
             result = (val_aucs[epoch_idx], np.array([], dtype=float), np.array([], dtype=float))
         else:
             result = (0.0, test_labels_seq[epoch_idx], test_scores_seq[epoch_idx])
+
         call_count["n"] += 1
         return result
 
@@ -297,11 +301,10 @@ def test_run_training_uses_best_val_auc_and_early_stopping(monkeypatch):
 
     monkeypatch.setattr(tm, "train", fake_train_fn)
 
-    device = torch.device("cpu")
     model, label, scores, returned_test_data = tm.run_training(
         cfg,
         base_data,
-        device,
+        cpu_device,
     )
 
     assert isinstance(model, Net)
@@ -376,7 +379,7 @@ def test_main_pipeline_with_mocks(monkeypatch):
 
 @pytest.mark.slow
 # Slow smoke test that runs a short real training loop on CPU.
-def test_run_training_smoke_cpu_small_epochs():
+def test_run_training_smoke_cpu_small_epochs(cpu_device: torch.device):
     torch.manual_seed(0)
     np.random.seed(0)
 
@@ -392,11 +395,10 @@ def test_run_training_smoke_cpu_small_epochs():
     cfg.training.lr_lambda = 0.99
     data, _ = get_graph_data(ddi, cfg)
 
-    device = torch.device("cpu")
     model, label, scores, test_data = run_training(
         cfg,
         data,
-        device,
+        cpu_device,
     )
 
     assert isinstance(model, Net)
