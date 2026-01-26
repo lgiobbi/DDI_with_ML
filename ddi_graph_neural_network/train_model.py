@@ -134,100 +134,114 @@ def data_split_with_labels(config: Config, data: Data) -> Tuple[Data, Data, Data
     """Splits the data into training, validation, and test sets while preserving labels.
 
     Args:
+        config (Config): Configuration object containing settings.
         data (Data): Input data to be split.
 
     Returns:
         Tuple[Data, Data, Data]: Training, validation, and test data splits.
     """
-    # Todo: check if data.y does not exist if "label" column is not in the original dataframe
-    if hasattr(data, "y") and data.y is not None:
-        # positive samples
-        positive_mask = data.y == 1
-        positive_data = Data(x=data.x, edge_index=data.edge_index[:, positive_mask])  # , y=data.y[positive_mask])
-        positive_transform = RandomLinkSplit(
-            num_val=0.2,
-            num_test=0.2,
-            is_undirected=True,  # adds bidirectional edges if not already present
-            add_negative_train_samples=False,  # should the train set have negative samples added like val/test?
-            neg_sampling_ratio=0.0,  # No new negative samples
-            # key="y",
-        )
-        pos_train, pos_val, pos_test = positive_transform(positive_data)
+    if config.graph.seed_graph_sampling is not None:
+        # If seed is set for graph sampling but not for training
+        cpu_state = torch.get_rng_state()
+        torch.manual_seed(config.graph.seed_graph_sampling)
 
-        # negative samples
-        negative_mask = data.y == 0
-        negative_data = Data(x=data.x, edge_index=data.edge_index[:, negative_mask])  # , y=data.y[negative_mask])
-        negative_transform = RandomLinkSplit(
-            num_val=0.2,
-            num_test=0.2,
-            is_undirected=True,
-            add_negative_train_samples=False,
-            neg_sampling_ratio=0.0,
-            # key="y",
-        )
-        neg_train, neg_val, neg_test = negative_transform(negative_data)
+    try:
+        # Todo: check if data.y does not exist if "label" column is not in the original dataframe
+        if hasattr(data, "y") and data.y is not None:
+            # positive samples
+            positive_mask = data.y == 1
+            positive_data = Data(x=data.x, edge_index=data.edge_index[:, positive_mask])  # , y=data.y[positive_mask])
+            positive_transform = RandomLinkSplit(
+                num_val=0.2,
+                num_test=0.2,
+                is_undirected=True,  # adds bidirectional edges if not already present
+                add_negative_train_samples=False,  # should the train set have negative samples added like val/test?
+                neg_sampling_ratio=0.0,  # No new negative samples
+                # key="y",
+            )
+            pos_train, pos_val, pos_test = positive_transform(positive_data)
 
-        # Create the final combined data splits
-        train_data = combine_splits(pos_train, neg_train)
-        val_data = combine_splits(pos_val, neg_val)
-        test_data = combine_splits(pos_test, neg_test)
+            # negative samples
+            negative_mask = data.y == 0
+            negative_data = Data(x=data.x, edge_index=data.edge_index[:, negative_mask])  # , y=data.y[negative_mask])
+            negative_transform = RandomLinkSplit(
+                num_val=0.2,
+                num_test=0.2,
+                is_undirected=True,
+                add_negative_train_samples=False,
+                neg_sampling_ratio=0.0,
+                # key="y",
+            )
+            neg_train, neg_val, neg_test = negative_transform(negative_data)
 
-        if config.run.upsample_negative_labels:
-            num_pos = (train_data.edge_label == 1).sum().item()
-            num_neg = (train_data.edge_label == 0).sum().item()
-            if num_pos < num_neg:
-                logger.debug("Not possible to upsample negative samples when positives are fewer.")
-            else:
-                neg_edge_index = sample_negative_edges(
-                    edge_index=train_data.edge_index,
-                    num_nodes=train_data.num_nodes,
-                )
+            # Create the final combined data splits
+            train_data = combine_splits(pos_train, neg_train)
+            val_data = combine_splits(pos_val, neg_val)
+            test_data = combine_splits(pos_test, neg_test)
 
-                num_neg_to_sample = num_pos - num_neg
-                logger.debug(f"Upsampling negative samples by {num_neg_to_sample} to balance labels.")
-                perm = torch.randperm(neg_edge_index.size(1))[:num_neg_to_sample]
-                neg_edge_index = neg_edge_index[:, perm]
+            if config.run.upsample_negative_labels:
+                # Add negative samples to balance labels in training data
+                num_pos = (train_data.edge_label == 1).sum().item()
+                num_neg = (train_data.edge_label == 0).sum().item()
+                if num_pos < num_neg:
+                    logger.debug("Not possible to upsample negative samples when positives are fewer.")
+                else:
+                    neg_edge_index = sample_negative_edges(
+                        edge_index=train_data.edge_index,
+                        num_nodes=train_data.num_nodes,
+                    )
 
-                edge_label_index = torch.cat([train_data.edge_label_index, neg_edge_index], dim=-1)
-                edge_label = torch.cat(
-                    [
-                        train_data.edge_label,
-                        torch.zeros(neg_edge_index.size(1)),
-                    ],
-                    dim=0,
-                )
-                train_data.edge_label_index = edge_label_index
-                train_data.edge_label = edge_label
+                    num_neg_to_sample = num_pos - num_neg
+                    logger.debug(f"Upsampling negative samples by {num_neg_to_sample} to balance labels.")
+                    perm = torch.randperm(neg_edge_index.size(1))[:num_neg_to_sample]
+                    neg_edge_index = neg_edge_index[:, perm]
 
-        return train_data, val_data, test_data
-    else:
-        logger.debug(f"No negative edges in the graph data. Sampling {data.edge_index.shape[1]} negative edges.")
-        transform = RandomLinkSplit(
-            num_val=0.2,
-            num_test=0.2,
-            is_undirected=True,
-            add_negative_train_samples=False,
-            neg_sampling_ratio=1.0,
-        )
-        train_data, val_data, test_data = transform(data)
-        # Sample negative edges for training data
-        neg_edge_index = sample_negative_edges(
-            edge_index=train_data.edge_index,
-            num_nodes=train_data.num_nodes,
-        )
+                    edge_label_index = torch.cat([train_data.edge_label_index, neg_edge_index], dim=-1)
+                    edge_label = torch.cat(
+                        [
+                            train_data.edge_label,
+                            torch.zeros(neg_edge_index.size(1)),
+                        ],
+                        dim=0,
+                    )
+                    train_data.edge_label_index = edge_label_index
+                    train_data.edge_label = edge_label
+                    logger.debug(
+                        f"After upsampling, training data has {int(train_data.edge_label.sum().item())} positive and {(train_data.edge_label == 0).sum().item()} negative samples."
+                    )
+            return train_data, val_data, test_data
+        else:
+            logger.debug(f"No negative edges in the graph data. Sampling {data.edge_index.shape[1]} negative edges.")
+            transform = RandomLinkSplit(
+                num_val=0.2,
+                num_test=0.2,
+                is_undirected=True,
+                add_negative_train_samples=False,
+                neg_sampling_ratio=1.0,
+            )
+            train_data, val_data, test_data = transform(data)
+            # Sample negative edges for training data
+            neg_edge_index = sample_negative_edges(
+                edge_index=train_data.edge_index,
+                num_nodes=train_data.num_nodes,
+            )
 
-        edge_label_index = torch.cat([train_data.edge_index, neg_edge_index], dim=-1)
-        edge_label = torch.cat(
-            [
-                torch.ones(train_data.edge_index.size(1)),
-                torch.zeros(neg_edge_index.size(1)),
-            ],
-            dim=0,
-        )
+            edge_label_index = torch.cat([train_data.edge_index, neg_edge_index], dim=-1)
+            edge_label = torch.cat(
+                [
+                    torch.ones(train_data.edge_index.size(1)),
+                    torch.zeros(neg_edge_index.size(1)),
+                ],
+                dim=0,
+            )
 
-        train_data.edge_label_index = edge_label_index
-        train_data.edge_label = edge_label
-        return train_data, val_data, test_data
+            train_data.edge_label_index = edge_label_index
+            train_data.edge_label = edge_label
+
+            return train_data, val_data, test_data
+    finally:
+        if config.graph.seed_graph_sampling is not None:
+            torch.set_rng_state(cpu_state)
 
 def get_criterion(config: Config, train_data: Data, device: torch.device) -> torch.nn.Module:
     """Get the loss criterion based on the configuration."""
@@ -410,13 +424,16 @@ def main(config: Config = Config()) -> dict:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
     config = Config()
-    config.run.take_negative_samples = False
+    config.run.take_negative_samples = True
     config.run.balanced_labels = False
-    config.run.upsample_negative_labels = True
+    config.run.upsample_negative_labels = False
+    config.run.loss_type = LossType.WeightedBCEWithLogitsLoss
+    config.run.pos_loss_multiplier = 1
 
     config.training.seed = 42
     config.graph.seed_graph_sampling = 42
     config.graph.current_graph = "DrugBank_CRESCENDDI"
+    config.graph.feature = "DESC_LLAMAII7b"
 
     run = main(config)
 
