@@ -32,6 +32,8 @@ source .venv/bin/activate
 
 2) Install PyTorch for your system (CPU or CUDA). Example (CPU):
 
+uv sync
+
 ```bash
 uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchvision==0.23.0
 ```
@@ -43,6 +45,27 @@ uv pip install -r requirements.txt
 uv pip install -e .
 ```
 
+
+### Add dependencies
+
+To add a new dependency to your project:
+
+1. Run the following command in your terminal:
+
+	```bash
+    uv add pandas
+	```
+A new entry is added to your `pyproject.toml` with the desired package under the `[project.dependencies]` section.
+
+2. Install the new dependencies into your environment:
+
+	```bash
+	uv sync
+	```
+
+This will update your environment to match the dependencies listed in `pyproject.toml`.
+
+---
 ## Run training
 
 The simplest “real” training entrypoint is:
