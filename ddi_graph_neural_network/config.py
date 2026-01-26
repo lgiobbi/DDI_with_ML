@@ -3,7 +3,7 @@ from typing import Dict, List, Optional
 from enum import Enum
 
 BASE_PATH_FEATURES = "/data/giobbi/embeddings/"
-AVAILABLE_FEATURES: List[str] = ["DESC_GPT", "SMILES_GPT"]
+AVAILABLE_FEATURES: List[str] = ["DESC_GPT", "SMILES_GPT", "DESC_LLAMAII7b"]
 
 class LossType(Enum):
     """Types of loss functions available."""
