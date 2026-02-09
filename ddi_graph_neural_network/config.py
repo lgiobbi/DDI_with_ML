@@ -22,6 +22,9 @@ class RunSettings:
         False  # If graph has negative samples, whether to balance pos/neg samples to min(num_pos, num_neg)
     )
     upsample_negative_labels: bool = False  # Whether to upsample negative samples to balance labels
+    use_only_sampled_negatives_in_train: bool = (
+        False  # Whether to drop negative samples during training (only use for evaluation)
+    )
 
     loss_type: LossType = LossType.BCEWithLogitsLoss
 
