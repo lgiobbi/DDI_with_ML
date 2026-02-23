@@ -93,7 +93,6 @@ class Config:
         cfg = Config()
         cfg.graph.current_graph = "CRESCENDDI"
         cfg.training.learning_rate = 1e-3
-        cfg.features.feature = "DESC_GPT"
     """
 
     graph: GraphParams = field(default_factory=GraphParams)
