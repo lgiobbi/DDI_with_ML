@@ -23,7 +23,9 @@ dependencies = [
     "ipykernel>=7.1.0",
     "matplotlib>=3.10.8",
     "gdown",
-    "seaborn"
+    "seaborn",
+    "flashtext>=2.7",
+    "rapidfuzz>=3.14.3",
 ]
 
 [project.urls]
