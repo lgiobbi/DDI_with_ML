@@ -1,0 +1,70 @@
+% Simple, clean semester-project report template (article style)
+\documentclass[11pt,oneside]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{amsmath,amssymb}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{setspace}
+\onehalfspacing
+\usepackage[hidelinks]{hyperref}
+\usepackage[numbers,sort&compress]{natbib}
+
+\title{Semester Project Report\\[0.5em]\large Project Title}
+\author{Luca Giobbi \\\small Supervisor: Prof. Dr. S. Huber}
+\date{October 7, 2022}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+This short abstract summarizes the project goals, methods, and key findings. Replace with your own text.
+\end{abstract}
+
+\tableofcontents
+\listoffigures
+\newpage
+
+\section{Introduction}
+Introduce the problem, motivation, and outline the report structure.
+
+\section{Related Work}
+Briefly review relevant literature and prior approaches.
+
+\section{Methods}
+Describe datasets, preprocessing, model architecture, and experimental setup.
+
+\section{Experiments}
+Explain experiments and evaluation protocol.
+
+\section{Results}
+Present main results and include example figures.
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.6\textwidth]{images/DDI_LM.png}
+    \caption{Example figure illustrating the model or data.}
+    \label{fig:example}
+\end{figure}
+
+\section{Discussion}
+Interpret the results, limitations, and implications.
+
+\section{Conclusion}
+Summarize contributions and propose future work.
+
+\section*{Acknowledgements}
+Thanks to supervisors, collaborators, and funding sources.
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\appendix
+\section{Additional Material}
+Supplementary figures, tables, or details.
+
+\end{document}
