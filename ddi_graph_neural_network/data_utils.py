@@ -13,7 +13,7 @@ KEPT_PERC_NOT_IN_GRAPH = 0.0  # Percentage of drugs not in graph to keep
 logger = logging.getLogger(__name__)
 #logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def get_node_id_map(DDI_graph: pd.DataFrame) -> dict:
+def _get_node_id_map(DDI_graph: pd.DataFrame) -> dict:
     """Get a mapping from drug IDs to node indices.
 
     Args:
@@ -27,7 +27,7 @@ def get_node_id_map(DDI_graph: pd.DataFrame) -> dict:
     return node_id_map
 
 
-def map_node_id(node_id_map: dict, drug_id: str) -> int | None:
+def _map_node_id(node_id_map: dict, drug_id: str) -> int | None:
     """Map a drug ID to its corresponding node index.
 
     Args:
@@ -40,7 +40,7 @@ def map_node_id(node_id_map: dict, drug_id: str) -> int | None:
     return node_id_map.get(drug_id, None)
 
 
-def match_embeddings_to_graph(
+def _match_embeddings_to_graph(
     DDI_graph: pd.DataFrame, emb: pd.DataFrame, drug_id_col: str
 ) -> Tuple[pd.DataFrame, dict]:
     """Align embeddings to the DDI graph, adding dummy embeddings for missing drugs.
@@ -67,7 +67,7 @@ def match_embeddings_to_graph(
     return emb, node_id_map
 
 
-def intersect_graph_and_embeddings(
+def _intersect_graph_and_embeddings(
     DDI_graph: pd.DataFrame, emb: pd.DataFrame, drug_id_col: str
 ) -> Tuple[pd.DataFrame, pd.DataFrame, dict]:
     """Drop drug from the graph that are not in the embeddings and drop embeddings that are not in the graph.
@@ -127,7 +127,7 @@ def intersect_graph_and_embeddings(
     return DDI_graph, emb, node_id_map
 
 
-def get_features_and_edges(
+def _get_features_and_edges(
     DDI_df: pd.DataFrame,
     emb: pd.DataFrame,
     node_id_map: dict,
@@ -144,14 +144,14 @@ def get_features_and_edges(
     emb = emb.select_dtypes(include=["float"])
     features = torch.tensor(emb.values, dtype=torch.float32)
 
-    edge_index = DDI_df[["src", "dst"]].map(lambda id: map_node_id(node_id_map, id)).to_numpy()
+    edge_index = DDI_df[["src", "dst"]].map(lambda id: _map_node_id(node_id_map, id)).to_numpy()
     edge_index = torch.tensor(edge_index).t().contiguous()
 
     # DDI_graph = np.vstack((DDI_graph, DDI_graph[:, ::-1]))  # Make bidirectional
     return features, edge_index
 
 
-def get_features_and_edges_constant(
+def _get_features_and_edges_constant(
     DDI_df: pd.DataFrame,
     feature_value: float = 1.0,
     feature_dim: int = 1,
@@ -169,11 +169,11 @@ def get_features_and_edges_constant(
     Returns:
         Tuple[torch.Tensor, torch.Tensor]: Node features tensor and edge_index tensor.
     """
-    node_id_map = get_node_id_map(DDI_df)
+    node_id_map = _get_node_id_map(DDI_df)
     num_nodes = len(node_id_map)
     features = torch.full((num_nodes, feature_dim), float(feature_value), dtype=torch.float32)
 
-    edge_index = DDI_df[["src", "dst"]].map(lambda id: map_node_id(node_id_map, id)).to_numpy()
+    edge_index = DDI_df[["src", "dst"]].map(lambda id: _map_node_id(node_id_map, id)).to_numpy()
     edge_index = torch.tensor(edge_index).t().contiguous()
 
     return features, edge_index
@@ -194,12 +194,12 @@ def get_graph_data(DDI_df: pd.DataFrame, config: Config) -> Data:
 
     # extract features and edge_index
     if feature_type == "__ONES__":
-        node_id_map = get_node_id_map(DDI_df)
-        features, edge_index = get_features_and_edges_constant(DDI_df, feature_value=1.0, feature_dim=1)
+        node_id_map = _get_node_id_map(DDI_df)
+        features, edge_index = _get_features_and_edges_constant(DDI_df, feature_value=1.0, feature_dim=1)
     else:
         emb = pd.read_csv(config.graph.feature_path, sep="\t", index_col=0).dropna()
-        DDI_df, emb, node_id_map = intersect_graph_and_embeddings(DDI_df, emb, config.graph.col_name_drug_id)
-        features, edge_index = get_features_and_edges(DDI_df, emb, node_id_map)
+        DDI_df, emb, node_id_map = _intersect_graph_and_embeddings(DDI_df, emb, config.graph.col_name_drug_id)
+        features, edge_index = _get_features_and_edges(DDI_df, emb, node_id_map)
         # inverted_node_id_map = get_inverted_node_id_map(node_id_map)
 
     labels = torch.tensor(DDI_df["label"].values, dtype=torch.float32) if "label" in DDI_df.columns else None
