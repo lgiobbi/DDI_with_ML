@@ -57,6 +57,7 @@ class GraphParams:
             "positive_edges_CRESCENDDI": "/data/giobbi/CRESCENDDI/positive_edges_CRESCENDDI.csv",
             "CRESCENDDI": "/data/giobbi/CRESCENDDI/CRESCENDDI_wo_contradiction.csv",
             "DrugBank_CRESCENDDI": "/data/giobbi/GRAPH/drugbank_crescenddi_graph_wo_contradiction.csv",
+            "ogbl-ddi": "/data/giobbi",
         }
     )
 

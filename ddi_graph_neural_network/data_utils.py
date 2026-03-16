@@ -179,15 +179,15 @@ def _get_features_and_edges_constant(
     return features, edge_index
 
 # construct graph_data object from features and edge_index
-def get_graph_data(DDI_df: pd.DataFrame, config: Config) -> Data:
+def _get_graph_data_from_csv(DDI_df: pd.DataFrame, config: Config) -> Tuple[Data, dict]:
     """Construct a PyTorch Geometric Data object from DDI dataframe and features.
 
     Args:
         DDI_df (pd.DataFrame): DataFrame containing drug-drug interactions.
-        feature_type (str): Type of features to use.
+        config (Config): Configuration object.
 
     Returns:
-        Data: A PyTorch Geometric Data object containing the graph data.
+        Tuple[Data, dict]: A PyTorch Geometric Data object and node_id_map.
     """
     feature_type = config.graph.feature
     DDI_df = DDI_df.copy()
@@ -244,3 +244,112 @@ def get_graph_data(DDI_df: pd.DataFrame, config: Config) -> Data:
                 )
 
     return Data(x=features, edge_index=edge_index, y=labels), node_id_map
+
+
+def _get_graph_data_from_ogbl_ddi(
+    config: Config,
+) -> Tuple[Data, dict]:
+    """Load ogbl-ddi dataset and create a Data object with predefined train/val/test splits.
+
+    Args:
+        config (Config): Configuration object.
+
+    Returns:
+        Tuple[Data, dict]: A Data object with split information stored as attributes, and node_id_map.
+    """
+    from ogb.linkproppred import PygLinkPropPredDataset
+
+    dataset_root = config.graph.available_graphs.get(config.graph.current_graph)
+    feature_type = config.graph.feature
+
+    # Patch torch.load BEFORE importing OGB to handle weights_only default
+    # This is required because PyTorch 2.6 defaults weights_only=True, which breaks OGB dataset loading
+    _torch_load_orig = torch.load.__wrapped__ if hasattr(torch.load, "__wrapped__") else torch.load
+
+    def torch_load_patched(f, *args, **kwargs):
+        if "weights_only" not in kwargs:
+            kwargs["weights_only"] = False
+        return _torch_load_orig(f, *args, **kwargs)
+
+    torch.load = torch_load_patched
+
+    # Load dataset
+    dataset = PygLinkPropPredDataset(name="ogbl-ddi", root=dataset_root)
+    ogbl_data = dataset[0]
+
+    # Get predefined splits
+    split_edges = dataset.get_edge_split()
+    train_edge_index = split_edges["train"]["edge"].t().contiguous()
+    val_edge_index = split_edges["valid"]["edge"].t().contiguous()
+    test_edge_index = split_edges["test"]["edge"].t().contiguous()
+
+    # Load node ID mapping from ogbl-ddi mapping file
+    mapping_path = f"{dataset_root}/ogbl_ddi/mapping/nodeidx2drugid.csv.gz"
+    node_df = pd.read_csv(mapping_path, compression="gzip")
+    node_id_map = {row["drug id"]: row["node idx"] for _, row in node_df.iterrows()}
+
+    # Create node features (constant ones if not specified)
+    if feature_type == "__ONES__":
+        features = torch.ones((ogbl_data.num_nodes, 1), dtype=torch.float32)
+    else:
+        # Load and align real embeddings
+        emb = pd.read_csv(config.graph.feature_path, sep="\t", index_col=0).dropna()
+        emb = emb.select_dtypes(include=["float"])
+
+        # Create a mapping dictionary: node_idx -> drug_id
+        idx_to_drug = {idx: drug_id for drug_id, idx in node_id_map.items()}
+        ordered_drug_ids = [idx_to_drug[i] for i in range(ogbl_data.num_nodes)]
+        emb = emb.reindex(ordered_drug_ids)
+        emb = emb.fillna(1.0)
+
+        features = torch.tensor(emb.values, dtype=torch.float32)
+
+    # Combine all edges with split labels
+    # Label: 2=train, 1=valid, 0=test (for compatibility with existing logic)
+
+    all_edges = torch.cat([train_edge_index, val_edge_index, test_edge_index], dim=1)
+    split_labels = torch.cat(
+        [
+            torch.full((train_edge_index.size(1),), 2, dtype=torch.long),
+            torch.full((val_edge_index.size(1),), 1, dtype=torch.long),
+            torch.full((test_edge_index.size(1),), 0, dtype=torch.long),
+        ]
+    )
+
+    # Create data object with split information stored as attributes
+    data = Data(x=features, edge_index=all_edges)
+    data.split_labels = split_labels  # 2=train, 1=valid, 0=test
+    data.has_predefined_split = True
+
+    logger.debug(
+        f"Loaded ogbl-ddi dataset with {data.num_nodes} nodes and {data.edge_index.size(1)} edges\n"
+        f"Train edges: {train_edge_index.size(1)}, Val edges: {val_edge_index.size(1)}, Test edges: {test_edge_index.size(1)}"
+    )
+
+    return data, node_id_map
+
+
+def get_graph_data(config: Config) -> Tuple[Data, dict]:
+    """Unified dispatcher function to load graph data based on configuration.
+
+    Routes to either CSV-based loading or ogbl-ddi loading based on config.graph.current_graph.
+
+    Args:
+        config (Config): Configuration object.
+
+    Returns:
+        Tuple[Data, dict]: A PyTorch Geometric Data object and node_id_map.
+    """
+    if config.graph.current_graph == "ogbl-ddi":
+        logger.debug("Loading predefined ogbl-ddi graph")
+        return _get_graph_data_from_ogbl_ddi(config)
+    else:
+        logger.debug(f"Loading CSV graph: {config.graph.current_graph}")
+        file_path = config.graph.available_graphs[config.graph.current_graph]
+
+        DDI_df = pd.read_csv(file_path, sep="\t").rename(columns={"Drug1": "src", "Drug2": "dst"})
+
+        # shuffle the dataframe
+        DDI_df = DDI_df.sample(frac=1, random_state=config.graph.seed_graph_sampling).reset_index(drop=True)
+
+        return _get_graph_data_from_csv(DDI_df, config)

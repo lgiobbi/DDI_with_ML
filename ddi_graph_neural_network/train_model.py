@@ -5,7 +5,6 @@ import logging
 
 
 import numpy as np
-import pandas as pd
 import torch
 import torch.nn as nn
 from sklearn.metrics import auc, precision_recall_curve, roc_auc_score
@@ -104,7 +103,7 @@ def get_metrics(label: np.ndarray, scores: np.ndarray) -> dict:
     return {"AUC": auc_score, "PR_AUC": pr_auc}
 
 
-def combine_splits(pos_split, neg_split):
+def _combine_splits(pos_split, neg_split):
     """Combines positive and negative data splits."""
     combined_split = pos_split.clone()
 
@@ -234,12 +233,64 @@ def _split_with_real_negatives(config: Config, data: Data) -> Tuple[Data, Data, 
     neg_train, neg_val, neg_test = negative_transform(negative_data)
 
     # Create the final combined data splits
-    train_data = combine_splits(pos_train, neg_train)
-    val_data = combine_splits(pos_val, neg_val)
-    test_data = combine_splits(pos_test, neg_test)
+    train_data = _combine_splits(pos_train, neg_train)
+    val_data = _combine_splits(pos_val, neg_val)
+    test_data = _combine_splits(pos_test, neg_test)
 
     if config.run.upsample_negative_labels or config.run.use_only_sampled_negatives_in_train:
         train_data = _further_process_train_with_real_negatives(config, train_data)
+
+    return train_data, val_data, test_data
+
+
+def _split_with_predefined_splits(config: Config, data: Data) -> Tuple[Data, Data, Data]:
+    """Use predefined splits stored in data.split_labels (for ogbl-ddi and similar datasets).
+
+    Args:
+        config (Config): Configuration object.
+        data (Data): Data object with split_labels attribute (2=train, 1=valid, 0=test).
+
+    Returns:
+        Tuple[Data, Data, Data]: Training, validation, and test data splits.
+    """
+    split_labels = data.split_labels
+
+    train_mask = split_labels == 2
+    val_mask = split_labels == 1
+    test_mask = split_labels == 0
+
+    train_indices = torch.where(train_mask)[0]
+    val_indices = torch.where(val_mask)[0]
+    test_indices = torch.where(test_mask)[0]
+
+    # Create Data objects for each split
+    train_data = Data(x=data.x, edge_index=data.edge_index[:, train_indices], num_nodes=data.num_nodes)
+    val_data = Data(x=data.x, edge_index=data.edge_index[:, val_indices], num_nodes=data.num_nodes)
+    test_data = Data(x=data.x, edge_index=data.edge_index[:, test_indices], num_nodes=data.num_nodes)
+
+    def add_negatives(split_data: Data) -> Data:
+        # Sample negative edges for proper binary classification training and evaluation
+        neg_edge_index = sample_negative_edges(
+            edge_index=split_data.edge_index,
+            num_nodes=split_data.num_nodes,
+        )
+        split_data.edge_label_index = torch.cat([split_data.edge_index, neg_edge_index], dim=-1)
+        split_data.edge_label = torch.cat(
+            [
+                torch.ones(split_data.edge_index.size(1), dtype=torch.float32),
+                torch.zeros(neg_edge_index.size(1), dtype=torch.float32),
+            ],
+            dim=0,
+        )
+        return split_data
+
+    train_data = add_negatives(train_data)
+    val_data = add_negatives(val_data)
+    test_data = add_negatives(test_data)
+
+    logger.debug(
+        f"Using predefined splits: Train={train_indices.numel()}, Val={val_indices.numel()}, Test={test_indices.numel()}"
+    )
 
     return train_data, val_data, test_data
 
@@ -254,6 +305,10 @@ def data_split_with_labels(config: Config, data: Data) -> Tuple[Data, Data, Data
     Returns:
         Tuple[Data, Data, Data]: Training, validation, and test data splits.
     """
+    # Check if data has predefined splits (e.g., from ogbl-ddi)
+    if hasattr(data, "has_predefined_split") and data.has_predefined_split:
+        return _split_with_predefined_splits(config, data)
+
     if config.graph.seed_graph_sampling is not None:
         # If seed is set for graph sampling but not for training
         cpu_state = torch.get_rng_state()
@@ -336,7 +391,7 @@ def run_training(
 
     # Training loop
     for epoch in range(1, config.training.epochs):
-        loss = train(
+        train(
             model,
             optimizer,
             criterion,
@@ -355,7 +410,7 @@ def run_training(
             best_model_state = model.state_dict()
         else:
             wait += 1
-        # print(f"Epoch: {epoch:03d}, Loss: {loss:.4f}, Val: {val_auc:.4f}")
+        print(f"Epoch: {epoch:03d}, Val: {val_auc:.4f}")
         if wait >= config.training.patience:
             logger.debug(f"Early stopping at epoch {epoch}")
             break
@@ -383,22 +438,12 @@ def main(config: Config = Config()) -> dict:
         # torch.backends.cudnn.deterministic = True
         # torch.backends.cudnn.benchmark = False
 
-    print("Current graph:", config.graph.current_graph)
-    DDI_df = pd.read_csv(
-        config.graph.available_graphs[config.graph.current_graph],
-        sep="\t",
-    ).rename(columns={"Drug1": "src", "Drug2": "dst"})
-
-    # shuffle the dataframe
-    DDI_df = DDI_df.sample(frac=1, random_state=config.graph.seed_graph_sampling).reset_index(
-        drop=True
-    )  # , random_state=10
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     results = {}
     AUC_bucket = []
     PR_bucket = []
-    graph_data, node_id_map = get_graph_data(DDI_df, config)
+
+    graph_data, node_id_map = get_graph_data(config)
 
     print(f"======== {config.graph.feature} ========")
     for i in range(config.training.repetitions):
@@ -448,6 +493,11 @@ def main(config: Config = Config()) -> dict:
 
 
 if __name__ == "__main__":
+    # measure time taken for the whole training process
+    import time
+
+    start_time = time.time()
+
     logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(levelname)s - %(message)s")
     config = Config()
     config.run.take_negative_samples = True
@@ -459,9 +509,13 @@ if __name__ == "__main__":
 
     config.training.seed = 42
     config.graph.seed_graph_sampling = 42
-    config.graph.current_graph = "DrugBank_CRESCENDDI"
-    config.graph.feature = "DESC_LLAMAII7b"
+    config.graph.current_graph = "ogbl-ddi"
+    config.graph.feature = "DESC_GPT"  # "DESC_GPT"__ONES__
+    config.training.patience = 20
 
     run = main(config)
+
+    end_time = time.time()
+    print(f"Total training time: {end_time - start_time:.2f} seconds")
 
 # %%
