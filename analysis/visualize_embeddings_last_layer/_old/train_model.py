@@ -184,7 +184,7 @@ def run_training(Embedding_models, transform, device, lmbda, epochs=100, patienc
                     best_model_state = model.state_dict()
                 else:
                     wait += 1
-                print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Val: {val_auc:.4f}')
+                # print(f'Epoch: {epoch:03d}, Loss: {loss:.4f}, Val: {val_auc:.4f}')
                 if wait >= patience:
                     print(f"Early stopping at epoch {epoch}")
                     break
