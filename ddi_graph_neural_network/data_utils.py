@@ -288,22 +288,6 @@ def _get_graph_data_from_ogbl_ddi(
     node_df = pd.read_csv(mapping_path, compression="gzip")
     node_id_map = {row["drug id"]: row["node idx"] for _, row in node_df.iterrows()}
 
-    # Create node features (constant ones if not specified)
-    if feature_type == "__ONES__":
-        features = torch.ones((ogbl_data.num_nodes, 1), dtype=torch.float32)
-    else:
-        # Load and align real embeddings
-        emb = pd.read_csv(config.graph.feature_path, sep="\t", index_col=0).dropna()
-        emb = emb.select_dtypes(include=["float"])
-
-        # Create a mapping dictionary: node_idx -> drug_id
-        idx_to_drug = {idx: drug_id for drug_id, idx in node_id_map.items()}
-        ordered_drug_ids = [idx_to_drug[i] for i in range(ogbl_data.num_nodes)]
-        emb = emb.reindex(ordered_drug_ids)
-        emb = emb.fillna(1.0)
-
-        features = torch.tensor(emb.values, dtype=torch.float32)
-
     # Combine all edges with split labels
     # Label: 2=train, 1=valid, 0=test (for compatibility with existing logic)
 
@@ -315,6 +299,27 @@ def _get_graph_data_from_ogbl_ddi(
             torch.full((test_edge_index.size(1),), 0, dtype=torch.long),
         ]
     )
+
+    # START: load graph into dataframe to algin with code of csv loading
+    idx_to_drug = {idx: drug_id for drug_id, idx in node_id_map.items()}
+    all_edges_cpu = all_edges.cpu().numpy()
+    src_drugs = [idx_to_drug[idx] for idx in all_edges_cpu[0]]
+    dst_drugs = [idx_to_drug[idx] for idx in all_edges_cpu[1]]
+    DDI_df = pd.DataFrame({"src": src_drugs, "dst": dst_drugs, "split": split_labels.numpy()})
+    # END: load graph into dataframe to algin with code of csv loading
+
+    from ddi_graph_neural_network.config import BASE_PATH_FEATURES
+
+    emb_path = config.graph.feature_path if feature_type != "__ONES__" else BASE_PATH_FEATURES + "DESC_GPT.csv"
+    emb = pd.read_csv(emb_path, sep="\t", index_col=0).dropna()
+    DDI_df, emb, node_id_map = _intersect_graph_and_embeddings(DDI_df, emb, config.graph.col_name_drug_id)
+    features, edge_index = _get_features_and_edges(DDI_df, emb, node_id_map)
+
+    if feature_type == "__ONES__":
+        features = torch.ones((features.size(0), 1), dtype=torch.float32)
+
+    all_edges = edge_index
+    split_labels = torch.tensor(DDI_df["split"].values, dtype=torch.long)
 
     # Create data object with split information stored as attributes
     data = Data(x=features, edge_index=all_edges)
