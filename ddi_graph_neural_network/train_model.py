@@ -162,6 +162,9 @@ def _split_without_real_negatives(config: Config, data: Data) -> Tuple[Data, Dat
 
 def _further_process_train_with_real_negatives(config: Config, train_data: Data) -> Data:
     """Further processes the training data when real negative samples are present, based on the configuration settings."""
+    # Record how many real negatives existed before any modification
+    num_neg_before = int((train_data.edge_label == 0).sum().item())
+
     if config.run.use_only_sampled_negatives_in_train:
         # Drop negative samples from training data (only use for evaluation)
         train_data.edge_label_index = train_data.edge_label_index[:, train_data.edge_label == 1]
@@ -173,18 +176,32 @@ def _further_process_train_with_real_negatives(config: Config, train_data: Data)
 
     if config.run.upsample_negative_labels or config.run.use_only_sampled_negatives_in_train:
         # Add negative samples to balance labels in training data
-        num_pos = (train_data.edge_label == 1).sum().item()
-        num_neg = (train_data.edge_label == 0).sum().item()
-        if num_pos < num_neg:
-            logger.debug("Not possible to upsample negative samples when positives are fewer.")
+        num_pos = int((train_data.edge_label == 1).sum().item())
+        num_neg = int((train_data.edge_label == 0).sum().item())
+
+        # Decide how many negatives to add:
+        # - If upsampling is requested, add (num_pos - num_neg) negatives (to balance positives)
+        # - Otherwise (use_only_sampled_negatives_in_train), re-add the same number as originally present
+        if config.run.upsample_negative_labels:
+            num_neg_to_sample = max(0, num_pos - num_neg)
+        else:
+            num_neg_to_sample = max(0, num_neg_before)
+
+        if num_neg_to_sample <= 0:
+            logger.debug("No negative samples to add (num_neg_to_sample <= 0).")
         else:
             neg_edge_index = sample_negative_edges(
                 edge_index=train_data.edge_index,
                 num_nodes=train_data.num_nodes,
             )
 
-            num_neg_to_sample = num_pos - num_neg
-            logger.debug(f"Upsampling negative samples by {num_neg_to_sample} to balance labels.")
+            # Make sure we don't request more negatives than available
+            available = neg_edge_index.size(1)
+            if num_neg_to_sample > available:
+                logger.debug(f"Requested {num_neg_to_sample} negatives but only {available} available; clipping.")
+                num_neg_to_sample = available
+
+            logger.debug(f"Sampling {num_neg_to_sample} negative edges to add to training data.")
             perm = torch.randperm(neg_edge_index.size(1))[:num_neg_to_sample]
             neg_edge_index = neg_edge_index[:, perm]
 
@@ -192,7 +209,9 @@ def _further_process_train_with_real_negatives(config: Config, train_data: Data)
             edge_label = torch.cat(
                 [
                     train_data.edge_label,
-                    torch.zeros(neg_edge_index.size(1)),
+                    torch.zeros(
+                        neg_edge_index.size(1), dtype=train_data.edge_label.dtype, device=train_data.edge_label.device
+                    ),
                 ],
                 dim=0,
             )
@@ -502,8 +521,8 @@ if __name__ == "__main__":
     config = Config()
     config.run.take_negative_samples = True
     config.run.balanced_labels = False
-    config.run.upsample_negative_labels = True
-    config.run.use_only_sampled_negatives_in_train = False
+    config.run.upsample_negative_labels = False
+    config.run.use_only_sampled_negatives_in_train = True
     config.run.loss_type = LossType.WeightedBCEWithLogitsLoss
     config.run.pos_loss_multiplier = 0.5
 
