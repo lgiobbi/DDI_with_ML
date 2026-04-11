@@ -410,7 +410,7 @@ def run_training(
             best_model_state = model.state_dict()
         else:
             wait += 1
-        print(f"Epoch: {epoch:03d}, Val: {val_auc:.4f}")
+        # print(f"Epoch: {epoch:03d}, Val: {val_auc:.4f}")
         if wait >= config.training.patience:
             logger.debug(f"Early stopping at epoch {epoch}")
             break
@@ -502,16 +502,16 @@ if __name__ == "__main__":
     config = Config()
     config.run.take_negative_samples = True
     config.run.balanced_labels = False
-    config.run.upsample_negative_labels = False
-    config.run.use_only_sampled_negatives_in_train = True
+    config.run.upsample_negative_labels = True
+    config.run.use_only_sampled_negatives_in_train = False
     config.run.loss_type = LossType.WeightedBCEWithLogitsLoss
-    config.run.pos_loss_multiplier = 1
+    config.run.pos_loss_multiplier = 0.5
 
     config.training.seed = 42
     config.graph.seed_graph_sampling = 42
-    config.graph.current_graph = "ogbl-ddi"
+    config.graph.current_graph = "DrugBank_CRESCENDDI"  # "ogbl-ddi"
     config.graph.feature = "DESC_GPT"  # "DESC_GPT"__ONES__
-    config.training.patience = 20
+    config.training.patience = 10
 
     run = main(config)
 
