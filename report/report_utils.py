@@ -246,9 +246,13 @@ def plot_experiment_results(results, title_suffix="Setting", filename="report_gr
     plt.show()
     
     summary_df = df.drop(columns=['precision', 'recall', 'fpr', 'tpr']).reset_index(drop=True)
-    summary_df.to_csv(os.path.join(fig_dir, filename.replace('.png', '.csv')), index=False)
-    
-    display(Markdown(f"### Summary of Metrics ({title_suffix})\n\n" + summary_df[['short', 'name', 'AUC_mean', 'AUC_std', 'PR_AUC_mean', 'PR_AUC_std']].to_markdown(index=False)))
+    summary_df["short name"] = summary_df["short"]
+    display_cols = ["short name", "AUC_mean", "AUC_std", "PR_AUC_mean", "PR_AUC_std"]
+    summary_df[display_cols].to_csv(os.path.join(fig_dir, filename.replace(".png", ".csv")), index=False)
+
+    display(
+        Markdown(f"### Summary of Metrics ({title_suffix})\n\n" + summary_df[display_cols].to_markdown(index=False))
+    )
 
 
 def find_balanced_threshold(y_scores):
