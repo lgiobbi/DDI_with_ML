@@ -389,3 +389,48 @@ def display_training_set_configurations(settings: list) -> pd.DataFrame:
     md = train_setttings_df.to_markdown()
     display(Markdown("### Training Set Configurations\n\n" + md))
     return train_setttings_df
+
+
+def render_model_architecture():
+    """
+    Renders the Mermaid diagram of the Graph Neural Network architecture.
+    """
+    import base64
+    from IPython.display import Image, display
+
+    mermaid_code = """
+    graph LR
+        A[Input Graph Data</br>Nodes and Edges] --> B[Initial Node Features</br>X: d-dimensional]
+        
+        subgraph Encoder [Graph Convolutional Encoder]
+            C1[GCN Layer 1] --> D1[ReLU & Dropout]
+            D1 --> C2[GCN Layer 2]
+            C2 --> D2[ReLU & Dropout]
+            D2 --> C3[GCN Layer 3]
+            C3 --> F[Node Embeddings Z</br>256-dim]
+        end
+        B --> C1
+        
+        subgraph Decoder [Pairwise Dot-Product Decoder]
+            G1(Z_u)
+            G2(Z_v)
+            H((Dot Product))
+            I[Predicted Logit]
+            J[Sigmoid]
+            K((Probability))
+            G1 --> H
+            G2 --> H
+            H --> I
+            I --> J
+            J --> K
+        end
+        
+        F -.-> G1
+        F -.-> G2
+        K --> L[Weighted BCE Loss]
+    """
+
+    graphbytes = mermaid_code.encode("utf-8")
+    # Use url-safe base64 encoding without padding as expected by the Kroki / Mermaid API
+    base64_string = base64.urlsafe_b64encode(graphbytes).decode("ascii").replace("=", "")
+    display(Image(url="https://mermaid.ink/img/" + base64_string))
