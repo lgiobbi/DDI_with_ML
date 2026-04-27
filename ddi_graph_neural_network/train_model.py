@@ -373,7 +373,7 @@ def run_training(
     config: Config,
     data: Data,
     device: torch.device,
-) -> Tuple[Net, np.ndarray, np.ndarray]:
+) -> Tuple[Net, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Data, Data, Data]:
     """Train a GNN model on the provided data.
 
     Args:
@@ -441,7 +441,22 @@ def run_training(
         best_test_scores = last_test_scores if last_test_scores is not None else np.array([])
         test_label = last_test_label if last_test_label is not None else np.array([])
 
-    return model, test_label, best_test_scores, test_data
+    # evaluate model on training and validation data so callers can inspect labels/scores
+    train_roc, train_label, train_scores = test(model, train_data)
+    val_roc, val_label, val_scores = test(model, val_data)
+
+    return (
+        model,
+        train_label,
+        train_scores,
+        val_label,
+        val_scores,
+        test_label,
+        best_test_scores,
+        train_data,
+        val_data,
+        test_data,
+    )
 
 
 def main(config: Config = Config()) -> dict:
@@ -469,12 +484,27 @@ def main(config: Config = Config()) -> dict:
         logger.debug(
             f"Run {i + 1}/{config.training.repetitions} for {config.graph.feature} | LR: {config.training.learning_rate}"
         )
-        model, label, test_scores, test_data = run_training(
+        (
+            model,
+            train_label,
+            train_scores,
+            val_label,
+            val_scores,
+            label,
+            test_scores,
+            train_data,
+            val_data,
+            test_data,
+        ) = run_training(
             config,
             graph_data,
             device,
         )
+
         metrics = get_metrics(label, test_scores)
+        # compute train and validation metrics for inspection
+        train_metrics = get_metrics(train_label, train_scores)
+        val_metrics = get_metrics(val_label, val_scores)
         AUC_bucket.append(metrics["AUC"])
         PR_bucket.append(metrics["PR_AUC"])
 
@@ -503,6 +533,14 @@ def main(config: Config = Config()) -> dict:
         "model": model,
         "data": graph_data,
         "metrics": metrics,
+        "train_metrics": train_metrics,
+        "val_metrics": val_metrics,
+        "train_label": train_label,
+        "train_scores": train_scores,
+        "val_label": val_label,
+        "val_scores": val_scores,
+        "train_data": train_data,
+        "val_data": val_data,
         "label": label,
         "test_scores": test_scores,
         "test_data": test_data,
@@ -521,10 +559,10 @@ if __name__ == "__main__":
     config = Config()
     config.run.take_negative_samples = True
     config.run.balanced_labels = False
-    config.run.upsample_negative_labels = False
-    config.run.use_only_sampled_negatives_in_train = True
+
+    config.run.upsample_negative_labels = True
+    config.run.use_only_sampled_negatives_in_train = False
     config.run.loss_type = LossType.WeightedBCEWithLogitsLoss
-    config.run.pos_loss_multiplier = 0.5
 
     config.training.seed = 42
     config.graph.seed_graph_sampling = 42
@@ -532,7 +570,9 @@ if __name__ == "__main__":
     config.graph.feature = "DESC_GPT"  # "DESC_GPT"__ONES__
     config.training.patience = 10
 
-    run = main(config)
+    for mult in [0.3, 0.4, 0.5, 0.6]:
+        config.run.pos_loss_multiplier = mult
+        run = main(config)
 
     end_time = time.time()
     print(f"Total training time: {end_time - start_time:.2f} seconds")
