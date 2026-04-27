@@ -357,3 +357,35 @@ def render_interactive_visualization(embedding, test_data, test_scores, threshol
 
     display(widgets.HBox([drug_dropdown, tsne_toggle]))
     create_visualization("DB00007", "input")
+
+
+def display_training_set_configurations(settings: list) -> pd.DataFrame:
+    """
+    Displays the training set configurations as a markdown table and returns it as a DataFrame.
+    """
+    train_setttings = [(2272, 27794), (0, 30066), (2272, 27794), (0, 30066), (2272, 0), (0, 2272)]
+    n_pos_train = 30066
+    train_setttings_df = pd.DataFrame(
+        train_setttings, columns=["Observed Negatives in Train", "Sampled Negatives in Train"]
+    )
+    train_setttings_df["Observed Positives in Train"] = n_pos_train
+    train_setttings_df["Positive Loss Multiplier"] = [r["pos_loss_multiplier"] for r in settings]
+    train_setttings_df["Loss Function"] = [str(r["loss_type"]).split(".")[-1] for r in settings]
+    train_setttings_df["Weight Factor Negative Loss"] = n_pos_train / (
+        (train_setttings_df["Observed Negatives in Train"] + train_setttings_df["Sampled Negatives in Train"])
+        * train_setttings_df["Positive Loss Multiplier"]
+    )
+    train_setttings_df = train_setttings_df[
+        [
+            "Loss Function",
+            "Observed Positives in Train",
+            "Observed Negatives in Train",
+            "Sampled Negatives in Train",
+            "Weight Factor Negative Loss",
+        ]
+    ]
+    train_setttings_df.index = [f"S{i + 1}" for i in range(len(train_setttings_df))]
+
+    md = train_setttings_df.to_markdown()
+    display(Markdown("### Training Set Configurations\n\n" + md))
+    return train_setttings_df
