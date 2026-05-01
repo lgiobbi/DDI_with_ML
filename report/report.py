@@ -100,11 +100,10 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 
 # %% [markdown]
 # # Materials and Methods
-
-# %% [markdown]
+#
+# This section details the datasets used for the empirical evaluation, how the interaction graph was harmonized, and outlines the machine learning architecture employed for the link prediction task.
+#
 # ## Dataset
-
-# %% [markdown]
 #
 # ### Graph
 # Our empirical evaluation relies on a robust and unified reference dataset that merges large-scale graph representations of drug knowledge with clinically validated interaction endpoints. To construct this benchmark, we integrated data from two primary resources: the ChCh-Miner network and the CRESCENDDI reference set.
@@ -163,9 +162,6 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 # We formulate drug-drug interaction (DDI) prediction as a link prediction task on an undirected, homogeneous graph $\mathcal{G} = (\mathcal{V}, \mathcal{E})$, where vertices $v \in \mathcal{V}$ represent individual drugs and edges $e_{u,v} \in \mathcal{E}$ denote validated interactions. Each node $v$ is initialized with a feature vector $\mathbf{x}_v \in \mathbb{R}^d$, representing either dense pre-trained language model embeddings extracted from drug descriptions or a constant baseline vector.
 #
 # Our architecture employs an encoder-decoder framework. The encoder utilizes a Graph Convolutional Network (GCN) to project node features into a rich, topology-aware latent space, while the decoder computes the pairwise probability of an edge existing between any two nodes.
-
-# %% [markdown]
-#
 #
 # ### Graph Convolutional Encoder
 # The encoder learns structural node representations by recursively aggregating features from local neighborhoods. We stack three graph convolutional layers. The propagation rule for the $l$-th layer is defined as:
@@ -220,8 +216,9 @@ render_model_architecture()
 
 # %% [markdown]
 # # Experiments and Results
-
-# %% [markdown]
+#
+# This section presents the experiments assessing the performance of our Graph Neural Network. We evaluate the impact of different loss configurations for handling class imbalance, and compare the effectiveness of semantically enriched language model embeddings against a constant feature baseline.
+#
 # ## Experiments on Loss Functions and Labels
 #
 # This section outlines how negative, non-interacting examples are empirically constructed during the training phase, alongside the specific hyperparameters evaluated for handling dataset imbalance.
@@ -326,11 +323,10 @@ plot_experiment_results(settings_results, title_suffix="Loss Setting", filename=
 
 # %% [markdown]
 # ## Evaluating Node Feature Representations
-
-# %% [markdown]
+#
 # ### LLM Embeddings vs. Baseline Initialization
 #
-# As detailed in the Preliminary data section, we systematically evaluate the functional contribution of the semantic node features to the overall prediction model. In evaluating the performance of these text embeddings within our Graph Convolutional Network (GCN), we empirically benchmark substituting a baseline, non-informative feature strategy (an initial node feature vector uniformly initialized to ones, denoted as `__ONES__`) with the dense, domain-focused LLM-derived features generated via OpenAI's ADA model (`DESC_GPT`). 
+# As detailed in the Materials and Methods section, we systematically evaluate the functional contribution of the semantic node features to the overall prediction model. In evaluating the performance of these text embeddings within our Graph Convolutional Network (GCN), we empirically benchmark substituting a baseline, non-informative feature strategy (an initial node feature vector uniformly initialized to ones, denoted as `__ONES__`) with the dense, domain-focused LLM-derived features generated via OpenAI's ADA model (`DESC_GPT`).
 #
 # Throughout these downstream experimental evaluations, all auxiliary components of the learning pipeline—including the training/test splits, optimal weighted BCE loss configuration, network architectural sizes, and all associated training hyperparameters—were held strictly constant. By keeping the underlying topological processing and optimization framework entirely frozen, any resulting variance precisely isolates the true classification capability gain, allowing improvements in validation metrics (such as ROC-AUC and PR-AUC) to be explicitly attributed to the underlying semantic knowledge captured by the embedded structural representations.
 
@@ -377,8 +373,7 @@ plot_experiment_results(feature_results, title_suffix="Feature", filename="repor
 
 # %% [markdown]
 # ## Final Model Evaluation
-
-# %% [markdown]
+#
 # In the following section, we analyze our model's performance in its optimal configuration, employing GPT-3 embeddings of drug descriptions combined with weighted binary cross-entropy loss (weight factor on negative loss = 26.4665) and no upsampling of negative labels. To ensure fair comparison across experimental settings, we calibrate the prediction threshold such that the number of predicted positive and negative labels are balanced.
 #
 # Description embeddings prove to be a critical learning signal, yielding substantial improvements in model performance: the ROC-AUC increases from 0.66 to 0.78, and the PR-AUC improves from 0.96 to 0.98 compared to the baseline with constant node features. To elucidate the mechanisms underlying this improvement, we conducted a series of exploratory analyses presented below. Further ablation studies are required to fully characterize the contributions of individual components and to validate the statistical significance of our findings.
@@ -408,8 +403,7 @@ display(embedding.head(3))
 
 # %% [markdown]
 # ### Results
-
-# %% [markdown]
+#
 # For each ATC class, we report aggregated performance statistics computed from the test set: the number of drugs per class, median misclassification rate, interquartile range, mean, and standard deviation. The boxplot below visualizes the distribution of these metrics across all therapeutic categories.
 
 # %%
