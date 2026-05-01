@@ -35,7 +35,7 @@ def get_base_config():
     config.graph.seed_graph_sampling = 42
     config.graph.current_graph = "DrugBank_CRESCENDDI"
     config.run.take_negative_samples = True
-    config.training.repetitions = 1
+    config.training.repetitions = 5
     config.graph.feature = "DESC_GPT"
     return config
 
