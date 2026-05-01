@@ -251,7 +251,7 @@ def plot_experiment_results(results, title_suffix="Setting", filename="report_gr
     summary_df[display_cols].to_csv(os.path.join(fig_dir, filename.replace(".png", ".csv")), index=False)
 
     display(
-        Markdown(f"### Summary of Metrics ({title_suffix})\n\n" + summary_df[display_cols].to_markdown(index=False))
+        Markdown(f"##### Summary of Metrics ({title_suffix})\n\n" + summary_df[display_cols].to_markdown(index=False))
     )
 
 

@@ -14,7 +14,7 @@
 # ---
 
 # %% [markdown]
-# <div align="center">
+# <div align="center" markdown="1">
 #
 # <span style="font-size: 36px; font-weight: bold;">
 # Detecting Drug Interactions with Machine Learning
