@@ -165,7 +165,7 @@ def plot_pharma_class_error_rates(embedding):
     cmap = plt.cm.Reds
     palette = {c: cmap(norm(v)) for c, v in edge_counts.items()}
 
-    fig, ax = plt.subplots(figsize=(16, 14))
+    fig, ax = plt.subplots(figsize=(8, 6))
     sns.boxplot(
         data=df[df["class_"].isin(order)],
         x="class_",
@@ -183,7 +183,7 @@ def plot_pharma_class_error_rates(embedding):
         capprops={"linewidth": 1.2, "color": "black"},
     )
 
-    ax.tick_params(axis="x", rotation=90)
+    ax.tick_params(axis="x", rotation=90, labelsize=10)
     ax.set(
         title="Mean Error Rate by Pharma Class (colored by edge count)", xlabel="", ylabel="Missclassified Percentage"
     )
@@ -216,7 +216,7 @@ def plot_experiment_results(results, title_suffix="Setting", filename="report_gr
         low, high = max(0.0, val_min - margin), min(1.0, val_max + margin)
         return (max(0.0, high - min_range), high) if high - low < min_range else (low, high)
 
-    fig, axes = plt.subplots(2, 2, figsize=(16, 12), constrained_layout=True)
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10), constrained_layout=True)
     (ax_roc_curve, ax_roc_bar), (ax_pr_curve, ax_pr_bar) = axes
 
     for _, r in df.iterrows():
