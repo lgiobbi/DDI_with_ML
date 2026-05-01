@@ -87,7 +87,7 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 #
 # Drug-drug interactions (DDIs) are a major source of preventable adverse drug reactions in polypharmacy settings, yet exhaustive experimental screening remains costly and incomplete. This report studies DDI prediction as a link prediction problem on a harmonized pharmacological graph built by integrating the ChCh-Miner interaction network with clinically curated controls from CRESCENDDI. We evaluate a Graph Convolutional Network (GCN) that combines graph topology with semantic node attributes derived from DrugBank textual descriptions embedded using OpenAI's `text-embedding-ada-002`, and we compare this setting against a non-informative feature baseline.
 #
-# Results show that semantic enrichment substantially improves predictive performance, increasing ROC-AUC from 0.66 to 0.78 and PR-AUC from 0.96 to 0.98. We further observe that using clinically validated negative controls and a weighted binary cross-entropy objective is critical for stable learning under class imbalance. Analysis of latent representations suggests that the model captures therapeutically meaningful structure (including ATC-aligned clustering), while class-specific error disparities indicate remaining limitations and potential dataset bias. Overall, the findings support LLM-enhanced graph learning as a practical and promising direction for computational pharmacovigilance and drug safety screening.
+# Semantic enrichment of node features substantially improves predictive performance. Using clinically validated negative controls and a weighted binary cross-entropy objective proves critical for stable learning under class imbalance. Analysis of latent representations reveals that the model captures therapeutically meaningful structure (including ATC-aligned clustering), while class-specific error disparities indicate remaining limitations and potential dataset bias. Overall, the findings support LLM-enhanced graph learning as a practical and promising direction for computational pharmacovigilance and drug safety screening.
 
 # %% [markdown]
 # # Introduction
@@ -135,26 +135,8 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 # These variable-length qualitative descriptions were computationally mapped into a continuous, fixed-dimensional real coordinate space using OpenAI's `text-embedding-ada-002` model [[openai_ada]](#openai_ada). Such text embeddings explicitly encode semantic relationships geometrically, guaranteeing that biologically or chemically related drugs occupy proximate regions within the embedding space. This structure subsequently enables reliable nearest-neighbor retrieval and quantitative comparisons typically evaluated via cosine similarity. Off-the-shelf embeddings constructed by large language models have been demonstrably shown to capture transferable semantic structure highly beneficial as functional priors for downstream graph learning tasks [[text_embeddings]](#text_embeddings). 
 #
 # By supplying these rich semantic vectors as the initial node attributes to the Graph Convolutional Network—substituting a naive baseline of non-informative, constant features (vectors entirely consisting of ones)—the architecture leverages powerful functional priors that substantially promote feature generalizability and sample efficiency in solving the link prediction task.
-
-# %% [markdown]
-# #### ATC Classification
 #
-# To effectively analyze model error rates and categorize drug properties across broader therapeutic and chemical boundaries, we incorporate the Anatomical Therapeutic Chemical (ATC) classification system.
 #
-# **System Structure**
-# Developed by the WHO, the ATC system hierarchically stratifies active pharmaceutical substances based on the specific organ or system upon which they act, as well as their therapeutic, pharmacological, and chemical properties. The classification comprises five discrete levels:
-# 1. **1st level:** Represents the main anatomical or pharmacological group (fourteen main groups).
-# 2. **2nd level:** Identifies the main pharmacological or therapeutic subgroup.
-# 3. **3rd and 4th levels:** Further specify the chemical, pharmacological, or therapeutic subgroups, frequently utilized when main therapeutic indications span several areas.
-# 4. **5th level:** Specifies the precise chemical substance itself, preferentially using the International Nonproprietary Name (INN).
-#
-# **Classification Principles and Challenges**
-# Medicinal substances are primarily assigned a single, unique ATC code determined by their principal therapeutic use globally—which typically relies on route of administration and dosage strength. Higher-level groupings intentionally accommodate drugs possessing multiple therapeutic applications without strictly specifying one single indication (e.g., classifying a drug as a calcium channel blocker without arbitrarily declaring it exclusively for coronary disease). 
-#
-# Classification challenges generally arise when a compound is equally utilized for multiple disparate primary indications or when standard therapeutic use varies significantly by region. In such instances, the WHO designates a single governing code based on global prevalence, which can occasionally complicate dataset interpretations locally and epidemiologically. Identifying model prediction dependencies across varied ATC classifications forms a critical part of determining structural evaluation biases in our resulting analysis [[who_atc]](#who_atc).
-#
-# **Integration into the Reference Graph**
-# To facilitate our downstream error analysis, ATC classifications were integrated into our interaction graph. Because the source datasets lack a unified identifier, the linkage was performed using exact string matching on the drug names. Through this procedure, we successfully mapped the vast majority of the network; however, 176 out of the 1,510 compounds could not be uniquely assigned an ATC class. These unmatched cases are primarily attributable to minor naming discrepancies, missing registry values, or inconsistent formatting of composite nomenclature.
 
 # %% [markdown]
 # ## Model Architecture
@@ -324,11 +306,11 @@ plot_experiment_results(settings_results, title_suffix="Loss Setting", filename=
 # %% [markdown]
 # ## Evaluating Node Feature Representations
 #
+# Having established the optimal loss configuration from the above experiments, we now systematically evaluate the impact of input node features. We benchmark a baseline, non-informative feature strategy (an initial node feature vector uniformly initialized to ones, denoted as `__ONES__`) against dense, domain-focused LLM-derived features generated via OpenAI's ADA model (`DESC_GPT`).
+#
 # ### LLM Embeddings vs. Baseline Initialization
 #
-# As detailed in the Materials and Methods section, we systematically evaluate the functional contribution of the semantic node features to the overall prediction model. In evaluating the performance of these text embeddings within our Graph Convolutional Network (GCN), we empirically benchmark substituting a baseline, non-informative feature strategy (an initial node feature vector uniformly initialized to ones, denoted as `__ONES__`) with the dense, domain-focused LLM-derived features generated via OpenAI's ADA model (`DESC_GPT`).
-#
-# Throughout these downstream experimental evaluations, all auxiliary components of the learning pipeline—including the training/test splits, optimal weighted BCE loss configuration, network architectural sizes, and all associated training hyperparameters—were held strictly constant. By keeping the underlying topological processing and optimization framework entirely frozen, any resulting variance precisely isolates the true classification capability gain, allowing improvements in validation metrics (such as ROC-AUC and PR-AUC) to be explicitly attributed to the underlying semantic knowledge captured by the embedded structural representations.
+# Throughout these downstream experimental evaluations, all auxiliary components of the learning pipeline—including the training/test splits, optimal weighted BCE loss configuration, network architectural sizes, and all associated training hyperparameters—were held strictly constant. By keeping the underlying topological processing and optimization framework entirely frozen, any resulting variance precisely isolates the true classification capability gain, allowing improvements in validation metrics to be explicitly attributed to the underlying semantic knowledge captured by the embedded structural representations.
 
 # %%
 feature_settings = [
@@ -376,7 +358,9 @@ plot_experiment_results(feature_results, title_suffix="Feature", filename="repor
 #
 # In the following section, we analyze our model's performance in its optimal configuration, employing GPT-3 embeddings of drug descriptions combined with weighted binary cross-entropy loss (weight factor on negative loss = 26.4665) and no upsampling of negative labels. To ensure fair comparison across experimental settings, we calibrate the prediction threshold such that the number of predicted positive and negative labels are balanced.
 #
-# Description embeddings prove to be a critical learning signal, yielding substantial improvements in model performance: the ROC-AUC increases from 0.66 to 0.78, and the PR-AUC improves from 0.96 to 0.98 compared to the baseline with constant node features. To elucidate the mechanisms underlying this improvement, we conducted a series of exploratory analyses presented below. Further ablation studies are required to fully characterize the contributions of individual components and to validate the statistical significance of our findings.
+# ### Overall Performance
+#
+# Description embeddings prove to be a critical learning signal, yielding substantial improvements in model performance compared to the baseline with constant node features. To elucidate the mechanisms underlying this improvement, we conducted a series of exploratory analyses presented below. Further ablation studies are required to fully characterize the contributions of individual components and to validate the statistical significance of our findings.
 
 # %%
 # Run the model using the analysis config
@@ -402,7 +386,13 @@ print(f"Threshold: {threshold:.4f} | Negatives: {node_info_trained['FN'].sum() +
 display(embedding.head(3))
 
 # %% [markdown]
-# ### Results
+# ### Error Analysis by Therapeutic Category
+#
+# #### ATC Classification System
+#
+# To effectively analyze model error rates and categorize drug properties across broader therapeutic and chemical boundaries, we incorporate the Anatomical Therapeutic Chemical (ATC) classification system. Developed by the WHO, the ATC system hierarchically stratifies active pharmaceutical substances based on the specific organ or system upon which they act, as well as their therapeutic, pharmacological, and chemical properties. The classification comprises five discrete levels (1st level: main anatomical/pharmacological group; 2nd level: main pharmacological/therapeutic subgroup; 3rd-4th levels: chemical/pharmacological/therapeutic subgroups; 5th level: precise chemical substance using International Nonproprietary Name). To facilitate our downstream error analysis, ATC classifications were integrated into our interaction graph through exact string matching on drug names. We successfully mapped the vast majority of the network; however, 176 out of the 1,510 compounds could not be uniquely assigned an ATC class [[who_atc]](#who_atc).
+#
+# #### Per-Class Performance Distribution
 #
 # For each ATC class, we report aggregated performance statistics computed from the test set: the number of drugs per class, median misclassification rate, interquartile range, mean, and standard deviation. The boxplot below visualizes the distribution of these metrics across all therapeutic categories.
 
@@ -416,9 +406,11 @@ plot_pharma_class_error_rates(embedding)
 # To address this question, we propose several approaches. First, suitable statistical tests could be applied, or the data could be normalized across classes to account for potential sampling biases. Second, since drug class information is implicitly encoded within the drug description embeddings used as node features, it is worth investigating whether these ATC classes constitute an important learning signal for the graph neural network. To evaluate this hypothesis, we suggest replacing the description embeddings with explicit ATC class features and comparing the model's performance. This substitution would allow us to isolate the contribution of class-level information to the model's predictive capacity. Additionally, similar analyses conducted on simpler baseline models would help establish the statistical significance of these findings and whether the observed effects are specific to the graph neural network architecture.
 
 # %% [markdown]
-# ### Visualizations
+# ### Latent Space Representation Learning
 #
 # To elucidate what structural information the model learns from drug descriptions—and how this contributes to its improved predictive performance—we examine the learned representations through a two-dimensional t-SNE projection of embeddings from the test set. We compare two feature spaces: (1) the input space derived directly from drug descriptions using GPT-3 embeddings, and (2) the latent space learned by the graph convolutional network trained on these embeddings. In both projections, clustering patterns are predominantly driven by ATC drug class membership, indicating that therapeutic classification encodes meaningful chemical and biological similarities that inform drug interaction prediction.
+#
+# #### Interactive Visualization
 #
 # The interactive visualization enables detailed exploration of individual drugs and their predicted interactions. By selecting a drug of interest from the dropdown menu, users can examine all edges linking to that drug in the test set, with each edge color-coded according to its classification outcome (true positive, false positive, false negative, or true negative). The visualization further allows filtering by ATC class and edge type, facilitating targeted analysis of model performance across different therapeutic categories.
 #
