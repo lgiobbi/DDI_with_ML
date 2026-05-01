@@ -245,10 +245,14 @@ def plot_experiment_results(results, title_suffix="Setting", filename="report_gr
     fig.savefig(report_path, dpi=180)
     plt.show()
     
-    summary_df = df.drop(columns=['precision', 'recall', 'fpr', 'tpr'])
-    summary_df.to_csv(os.path.join(fig_dir, filename.replace('.png', '.csv')), index=False)
-    
-    display(Markdown(f"### Summary of Metrics ({title_suffix})\n\n" + summary_df[['short', 'name', 'AUC_mean', 'AUC_std', 'PR_AUC_mean', 'PR_AUC_std']].to_markdown()))
+    summary_df = df.drop(columns=['precision', 'recall', 'fpr', 'tpr']).reset_index(drop=True)
+    summary_df["short name"] = summary_df["short"]
+    display_cols = ["short name", "AUC_mean", "AUC_std", "PR_AUC_mean", "PR_AUC_std"]
+    summary_df[display_cols].to_csv(os.path.join(fig_dir, filename.replace(".png", ".csv")), index=False)
+
+    display(
+        Markdown(f"### Summary of Metrics ({title_suffix})\n\n" + summary_df[display_cols].to_markdown(index=False))
+    )
 
 
 def find_balanced_threshold(y_scores):
@@ -353,3 +357,80 @@ def render_interactive_visualization(embedding, test_data, test_scores, threshol
 
     display(widgets.HBox([drug_dropdown, tsne_toggle]))
     create_visualization("DB00007", "input")
+
+
+def display_training_set_configurations(settings: list) -> pd.DataFrame:
+    """
+    Displays the training set configurations as a markdown table and returns it as a DataFrame.
+    """
+    train_setttings = [(2272, 27794), (0, 30066), (2272, 27794), (0, 30066), (2272, 0), (0, 2272)]
+    n_pos_train = 30066
+    train_setttings_df = pd.DataFrame(
+        train_setttings, columns=["Observed Negatives in Train", "Sampled Negatives in Train"]
+    )
+    train_setttings_df["Observed Positives in Train"] = n_pos_train
+    train_setttings_df["Positive Loss Multiplier"] = [r["pos_loss_multiplier"] for r in settings]
+    train_setttings_df["Loss Function"] = [str(r["loss_type"]).split(".")[-1] for r in settings]
+    train_setttings_df["Weight Factor Negative Loss"] = n_pos_train / (
+        (train_setttings_df["Observed Negatives in Train"] + train_setttings_df["Sampled Negatives in Train"])
+        * train_setttings_df["Positive Loss Multiplier"]
+    )
+    train_setttings_df = train_setttings_df[
+        [
+            "Loss Function",
+            "Observed Positives in Train",
+            "Observed Negatives in Train",
+            "Sampled Negatives in Train",
+            "Weight Factor Negative Loss",
+        ]
+    ]
+    train_setttings_df.index = [f"S{i + 1}" for i in range(len(train_setttings_df))]
+
+    md = train_setttings_df.to_markdown()
+    display(Markdown("### Training Set Configurations\n\n" + md))
+    return train_setttings_df
+
+
+def render_model_architecture():
+    """
+    Renders the Mermaid diagram of the Graph Neural Network architecture.
+    """
+    import base64
+    from IPython.display import Image, display
+
+    mermaid_code = """
+    graph LR
+        A[Input Graph Data</br>Nodes and Edges] --> B[Initial Node Features</br>X: d-dimensional]
+        
+        subgraph Encoder [Graph Convolutional Encoder]
+            C1[GCN Layer 1] --> D1[ReLU & Dropout]
+            D1 --> C2[GCN Layer 2]
+            C2 --> D2[ReLU & Dropout]
+            D2 --> C3[GCN Layer 3]
+            C3 --> F[Node Embeddings Z</br>256-dim]
+        end
+        B --> C1
+        
+        subgraph Decoder [Pairwise Dot-Product Decoder]
+            G1(Z_u)
+            G2(Z_v)
+            H((Dot Product))
+            I[Predicted Logit]
+            J[Sigmoid]
+            K((Probability))
+            G1 --> H
+            G2 --> H
+            H --> I
+            I --> J
+            J --> K
+        end
+        
+        F -.-> G1
+        F -.-> G2
+        K --> L[Weighted BCE Loss]
+    """
+
+    graphbytes = mermaid_code.encode("utf-8")
+    # Use url-safe base64 encoding without padding as expected by the Kroki / Mermaid API
+    base64_string = base64.urlsafe_b64encode(graphbytes).decode("ascii").replace("=", "")
+    display(Image(url="https://mermaid.ink/img/" + base64_string))

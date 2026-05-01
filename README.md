@@ -1,87 +1,86 @@
-# DDI with ML
+# Detecting Drug Interactions with Machine Learning
 
-Drug–drug interaction (DDI) prediction experiments using graph neural networks.
+This repository contains the codebase and empirical research for predicting Drug-Drug Interactions (DDIs) using Graph Neural Networks (GNNs) enriched with Large Language Model (LLM) textual embeddings.
 
-The main code artifact of this repository is the installable Python package in `ddi_graph_neural_network/`.
-It contains the model, training loop, and graph/data utilities used by the scripts and tests.
+## Project Architecture
 
-## Repository structure
+The project workflow relies on two primary components:
 
-- `ddi_graph_neural_network/`: main package (model + training + data utilities)
-- `scripts/`: command-line style entrypoints (e.g., batch training runs)
-- `tests/`: unit tests
-- `analysis/`, `data_preparation/`, `legacy/`: notebooks and older experiments
+1. **The Core Package (`ddi_graph_neural_network/`)**  
+   An installable Python package containing the model architectures, data-processing pipelines, graph abstractions, and training loop logic.
+   
+2. **The Research Analysis (`report/`)**  
+   The primary experimental artifact. The notebook `report/report.ipynb` imports the `ddi_graph_neural_network` core package to execute multi-component experiments, perform performance/error analysis based on ATC classes, and interactively represent the underlying embeddings and predictive behaviors.
 
-## Requirements
+### Auxiliary Folders
+- `scripts/`: Command-line entrypoints to invoke batch model training.
+- `tests/`: Unit test suite ensuring the reliability of the core package logic.
+- `analysis/`, `data_preparation/`, `legacy/`: Notebooks and data-wrangling scripts previously used for parsing sources and evaluating isolated sub-processes.
 
-- Python: >= 3.10 (see `pyproject.toml`)
-- PyTorch + PyTorch Geometric
+## Quickstart
 
-### Install
+To reproduce the project and execute the `report/report.ipynb` notebook, follow these steps to set up the environment with `uv` and install the main package.
 
-Create and activate a virtual environment, then install dependencies.
-
-This project uses `uv` for environment and dependency management.
-
-1) Create a virtual environment:
-
+1) **Create and activate a virtual environment**:
 ```bash
 uv venv
-source .venv/bin/activate
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
-2) Install PyTorch for your system (CPU or CUDA). Example (CPU):
+2) **Install dependencies and the project package**:
+Sync the environment dependencies and install the local `ddi_graph_neural_network` package in editable mode so it can be successfully imported inside the notebook.
 
+```bash
 uv sync
-
-```bash
-uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchvision==0.23.0
-```
-
-3) Install the remaining dependencies and the package:
-
-```bash
-uv pip install -r requirements.txt
 uv pip install -e .
 ```
 
+*Note: Depending on your hardware, you may need to install specific PyTorch versions (e.g., CUDA-enabled) prior to syncing using: `uv pip install --index-url https://download.pytorch.org/whl/cpu torch==2.8.0 torchvision==0.23.0`*
 
-### Add dependencies
+3) **Execute the Report Notebook**:
+You can now open `report/report.ipynb` in VS Code and select the newly created `.venv` as the notebook kernel, or run Jupyter directly from the terminal:
 
-To add a new dependency to your project:
+```bash
+uv run jupyter notebook report/report.ipynb
+```
 
-1. Run the following command in your terminal:
+## Adding Dependencies
 
-	```bash
-    uv add pandas
-	```
-A new entry is added to your `pyproject.toml` with the desired package under the `[project.dependencies]` section.
+This project uses `uv` connected to the `pyproject.toml` file for fast dependency management.
 
-2. Install the new dependencies into your environment:
+```bash
+# Add a new dependency to pyproject.toml
+uv add <package_name>
 
-	```bash
-	uv sync
-	```
-
-This will update your environment to match the dependencies listed in `pyproject.toml`.
+# Sync the changes to your local virtual environment
+uv sync
+```
 
 ---
-## Run training
 
-The simplest “real” training entrypoint is:
+## Command Line Usage
+
+While the comprehensive experimental design runs out of `report/report.ipynb`, you can easily interface with the core package directly from the command line.
+
+### Run Tests
+
+Validate the internal operations by running the testing suite:
+
+```bash
+uv run pytest -q
+```
+
+### Run Model Training
+
+Run the single standard end-to-end training procedure:
 
 ```bash
 uv run python -m ddi_graph_neural_network.train_model
 ```
 
-Batch runs that write a CSV summary live in:
+
+Run batch configuration loops and output results to a CSV log:
 
 ```bash
 uv run python scripts/run_training.py
-```
-
-## Run tests
-
-```bash
-uv run pytest -q
 ```
