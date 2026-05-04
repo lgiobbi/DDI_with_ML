@@ -1,37 +1,53 @@
-# %%
-import warnings
-from typing import Tuple
 import logging
-
+import warnings
+from typing import Optional, Tuple
 
 import numpy as np
 import torch
 import torch.nn as nn
+import torch_geometric
 from sklearn.metrics import auc, precision_recall_curve, roc_auc_score
 from torch.optim.lr_scheduler import MultiplicativeLR
-import torch_geometric
 from torch_geometric.data import Data
 from torch_geometric.transforms import RandomLinkSplit
 from torch_geometric.utils import structured_negative_sampling
 from torchvision.ops import sigmoid_focal_loss
-from ddi_graph_neural_network.model import Net
-from ddi_graph_neural_network.data_utils import get_graph_data
-
 
 from ddi_graph_neural_network.config import Config, LossType
+from ddi_graph_neural_network.data_utils import get_graph_data
+from ddi_graph_neural_network.model import Net
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
 logger = logging.getLogger(__name__)
 
+
 class SigmoidFocalLoss(nn.Module):
-    def __init__(self, alpha: float = 0.25, gamma: float = 2.0, reduction: str = "mean"):
+    """Sigmoid Focal Loss function for imbalanced classification."""
+
+    def __init__(self, alpha: float | torch.Tensor = 0.25, gamma: float = 2.0, reduction: str = "mean"):
+        """Initialize the Sigmoid Focal Loss.
+
+        Args:
+            alpha (float | torch.Tensor): Weighting factor for the positive class.
+            gamma (float): Focusing parameter to down-weight easy examples.
+            reduction (str): Specifies the reduction to apply to the output.
+        """
         super(SigmoidFocalLoss, self).__init__()
         self.alpha = alpha
         self.gamma = gamma
         self.reduction = reduction
 
     def forward(self, logits: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
+        """Compute the forward pass.
+
+        Args:
+            logits (torch.Tensor): Predicted logits.
+            targets (torch.Tensor): Ground truth labels.
+
+        Returns:
+            torch.Tensor: Computed loss.
+        """
         loss = sigmoid_focal_loss(logits, targets, alpha=self.alpha, gamma=self.gamma, reduction=self.reduction)
         return loss
 
@@ -40,7 +56,7 @@ def train(
     model: Net,
     optimizer: torch.optim.Optimizer,
     criterion: torch.nn.Module,
-    scheduler: torch.optim.lr_scheduler._LRScheduler,
+    scheduler: torch.optim.lr_scheduler.LRScheduler,
     train_data: Data,
 ) -> torch.Tensor:
     """
@@ -50,7 +66,7 @@ def train(
         model (Net): The GNN model to be trained.
         optimizer (torch.optim.Optimizer): Optimizer for updating model parameters.
         criterion (torch.nn.Module): Loss function to optimize.
-        scheduler (torch.optim.lr_scheduler._LRScheduler): Learning rate scheduler.
+        scheduler (torch.optim.lr_scheduler.LRScheduler): Learning rate scheduler.
         train_data (Data): Training data containing node features and edges.
 
     Returns:
@@ -103,8 +119,16 @@ def get_metrics(label: np.ndarray, scores: np.ndarray) -> dict:
     return {"AUC": auc_score, "PR_AUC": pr_auc}
 
 
-def _combine_splits(pos_split, neg_split):
-    """Combines positive and negative data splits."""
+def _combine_splits(pos_split: Data, neg_split: Data) -> Data:
+    """Combines positive and negative data splits.
+
+    Args:
+        pos_split (Data): Data configuration for the positive split.
+        neg_split (Data): Data configuration for the negative split.
+
+    Returns:
+        Data: The combined data splits.
+    """
     combined_split = pos_split.clone()
 
     # The supervision edges from the negative split are all negatives (label 0)
@@ -127,6 +151,7 @@ def sample_negative_edges(edge_index: torch.Tensor, num_nodes: int) -> torch.Ten
     neg_edge_index = torch.stack((struct_neg_tup[0], struct_neg_tup[2]), dim=0)
     neg_edge_index, _ = torch.unique(neg_edge_index, dim=1, return_inverse=True)
     return neg_edge_index
+
 
 def _split_without_real_negatives(config: Config, data: Data) -> Tuple[Data, Data, Data]:
     """Splits the data into training, validation, and test sets by sampling all negative edges."""
@@ -343,6 +368,7 @@ def data_split_with_labels(config: Config, data: Data) -> Tuple[Data, Data, Data
         if config.graph.seed_graph_sampling is not None:
             torch.set_rng_state(cpu_state)
 
+
 def get_criterion(config: Config, train_data: Data, device: torch.device) -> torch.nn.Module:
     """Get the loss criterion based on the configuration."""
     match config.run.loss_type:
@@ -369,6 +395,7 @@ def get_criterion(config: Config, train_data: Data, device: torch.device) -> tor
         case _:
             raise ValueError(f"Unsupported loss type: {config.run.loss_type}")
 
+
 def run_training(
     config: Config,
     data: Data,
@@ -382,7 +409,7 @@ def run_training(
         device (torch.device): The device to run the training on.
 
     Returns:
-        Tuple[Net, np.ndarray, np.ndarray]: The trained GNN model and the corresponding labels and scores.
+        Tuple[Net, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, Data, Data, Data]: The trained GNN model, the corresponding labels and scores for train, val, and test, and the split datasets.
     """
 
     train_data, val_data, test_data = data_split_with_labels(config, data)
@@ -403,10 +430,10 @@ def run_training(
     best_val_auc: float = -float("inf")
     wait: int = 0
     best_model_state = None
-    best_test_scores = None
-    test_label = None
-    last_test_scores = None
-    last_test_label = None
+    best_test_scores: Optional[np.ndarray] = None
+    test_label: Optional[np.ndarray] = None
+    last_test_scores: Optional[np.ndarray] = None
+    last_test_label: Optional[np.ndarray] = None
 
     # Training loop
     for epoch in range(1, config.training.epochs):
@@ -445,14 +472,17 @@ def run_training(
     train_roc, train_label, train_scores = test(model, train_data)
     val_roc, val_label, val_scores = test(model, val_data)
 
+    test_label_out = test_label if test_label is not None else np.array([])
+    best_test_scores_out = best_test_scores if best_test_scores is not None else np.array([])
+
     return (
         model,
         train_label,
         train_scores,
         val_label,
         val_scores,
-        test_label,
-        best_test_scores,
+        test_label_out,
+        best_test_scores_out,
         train_data,
         val_data,
         test_data,

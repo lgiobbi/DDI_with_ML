@@ -66,6 +66,7 @@ class GraphParams:
 
     @property
     def available_features(self) -> List[str]:
+        """Get a list of all available combinations of features."""
         combinations = [
             f1 + "_+_" + f2 for i, f1 in enumerate(AVAILABLE_FEATURES) for f2 in AVAILABLE_FEATURES[i:] if f1 != f2
         ]
@@ -73,6 +74,7 @@ class GraphParams:
 
     @property
     def feature_path(self) -> str:
+        """Get the absolute path to the selected feature file."""
         if self.feature not in self.available_features:
             raise ValueError(f"Feature '{self.feature}' is not among available features: {self.available_features}")
         return BASE_PATH_FEATURES + self.feature + ".csv"

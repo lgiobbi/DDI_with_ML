@@ -213,7 +213,7 @@ def _get_graph_data_from_csv(DDI_df: pd.DataFrame, config: Config) -> Tuple[Data
         neg_indices = torch.where(neg_mask)[0]
 
         if config.run.balanced_labels:
-            min_count = min(pos_mask.sum().item(), neg_mask.sum().item())
+            min_count = int(min(pos_mask.sum().item(), neg_mask.sum().item()))
             pos_indices = pos_indices[:min_count]
             neg_indices = neg_indices[:min_count]
             logger.debug(
