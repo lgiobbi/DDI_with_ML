@@ -368,6 +368,7 @@ plot_experiment_results(feature_results, title_suffix="Feature", filename="repor
 # Run the model using the analysis config
 config_analysis = get_feature_experiment_config()
 config_analysis.graph.feature = "DESC_GPT"
+config_analysis.training.repetitions = 1
 
 run = main(config_analysis)
 
@@ -492,3 +493,6 @@ render_interactive_visualization(embedding, test_data, test_scores, threshold, r
 # **[gemini]** <span id="gemini">Google Cloud. "Gemini Embedding 2 | Generative AI on Vertex AI." Google Cloud Documentation. [URL](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models/gemini/embedding-2).</span>  
 #
 # **[openai_v3]** <span id="openai_v3">OpenAI. "Text-embedding-3-large." OpenAI API Documentation. [URL](https://developers.openai.com/api/docs/models/text-embedding-3-large).</span>
+
+# %% [markdown]
+#
