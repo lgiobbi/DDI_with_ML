@@ -1,8 +1,11 @@
+import os
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from enum import Enum
 
-BASE_PATH_FEATURES = "/data/giobbi/embeddings/"
+DATA_DIR = Path(os.getenv("DDI_DATA_DIR", "/data/giobbi"))
+BASE_PATH_FEATURES = f"{DATA_DIR}/embeddings/"
 AVAILABLE_FEATURES: List[str] = ["DESC_GPT", "SMILES_GPT", "DESC_LLAMAII7b"]
 
 class LossType(Enum):
@@ -53,11 +56,11 @@ class GraphParams:
 
     available_graphs: Dict[str, str] = field(
         default_factory=lambda: {
-            "DrugBank": "/data/giobbi/GRAPH/drugbank_graph.csv",  # "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv",
-            "positive_edges_CRESCENDDI": "/data/giobbi/CRESCENDDI/positive_edges_CRESCENDDI.csv",
-            "CRESCENDDI": "/data/giobbi/CRESCENDDI/CRESCENDDI_wo_contradiction.csv",
-            "DrugBank_CRESCENDDI": "/data/giobbi/GRAPH/drugbank_crescenddi_graph_wo_contradiction.csv",
-            "ogbl-ddi": "/data/giobbi",
+            "DrugBank": f"{DATA_DIR}/GRAPH/drugbank_graph.csv",  # "https://raw.githubusercontent.com/liiniix/BioSNAP/master/ChCh-Miner/ChCh-Miner_durgbank-chem-chem.tsv",
+            "positive_edges_CRESCENDDI": f"{DATA_DIR}/CRESCENDDI/positive_edges_CRESCENDDI.csv",
+            "CRESCENDDI": f"{DATA_DIR}/CRESCENDDI/CRESCENDDI_wo_contradiction.csv",
+            "DrugBank_CRESCENDDI": f"{DATA_DIR}/GRAPH/drugbank_crescenddi_graph_wo_contradiction.csv",
+            "ogbl-ddi": str(DATA_DIR),
         }
     )
 

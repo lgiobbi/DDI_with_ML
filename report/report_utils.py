@@ -1,14 +1,19 @@
+import base64
 import os
 import re
+
+import ipywidgets as widgets
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-from IPython.display import Markdown, display, clear_output
-
-import plotly.graph_objects as go
 import plotly.express as px
-import ipywidgets as widgets
+import plotly.graph_objects as go
+import seaborn as sns
+import torch
+from IPython.display import Image, Markdown, clear_output, display
+from sklearn.manifold import TSNE
+
+from ddi_graph_neural_network.config import DATA_DIR, Config, LossType
 
 # Centralized output directory for this module's generated files
 OUTPUT_SUBDIR = "report_outputs"
@@ -28,7 +33,6 @@ def get_output_dir(subfolder: str | None = None) -> str:
 
 def get_base_config():
     """Returns a fresh base configuration for experiments to prevent cross-contamination."""
-    from ddi_graph_neural_network.config import Config
 
     config = Config()
     config.training.seed = 42
@@ -42,7 +46,6 @@ def get_base_config():
 
 def get_feature_experiment_config():
     """Returns the configuration for the feature embeddings experiment."""
-    from ddi_graph_neural_network.config import LossType
 
     config = get_base_config()
     config.run.loss_type = LossType.WeightedBCEWithLogitsLoss
@@ -93,8 +96,6 @@ def compile_embeddings(model, data, reversed_node_id_map, node_info_trained):
     """
     Extracts embeddings, loads ATC classes, and merges everything into a DataFrame.
     """
-    import torch
-    from sklearn.manifold import TSNE
 
     model.eval()
     with torch.no_grad():
@@ -106,7 +107,7 @@ def compile_embeddings(model, data, reversed_node_id_map, node_info_trained):
         lambda x: reversed_node_id_map.get(int(x), f"unknown_{int(x)}")
     )
 
-    original_df = pd.read_csv("/data/giobbi/embeddings/DESC_GPT.csv", sep="\t", index_col=0)
+    original_df = pd.read_csv(f"{DATA_DIR}/embeddings/DESC_GPT.csv", sep="\t", index_col=0)
     original_df.set_index(original_df.columns[0], inplace=True)
 
     original_tsne = pd.DataFrame(
@@ -116,7 +117,7 @@ def compile_embeddings(model, data, reversed_node_id_map, node_info_trained):
     )
 
     atc_features = pd.read_csv(
-        "/data/giobbi/embeddings/not_aligned_with_model/drug_description_enriched_atc.csv", sep="\t", index_col=0
+        f"{DATA_DIR}/embeddings/not_aligned_with_model/drug_description_enriched_atc.csv", sep="\t", index_col=0
     )
     atc_features["atc_class_lvl_1"] = atc_features["atc_class_lvl_1"].str.split(": ").str[-1]
 
@@ -395,8 +396,6 @@ def render_model_architecture():
     """
     Renders the Mermaid diagram of the Graph Neural Network architecture.
     """
-    import base64
-    from IPython.display import Image, display
 
     mermaid_code = """
     graph LR
