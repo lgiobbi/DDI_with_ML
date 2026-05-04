@@ -13,9 +13,7 @@ The project workflow relies on two primary components:
    The primary experimental artifact. The notebook `report/report.ipynb` imports the `ddi_graph_neural_network` core package to execute multi-component experiments, perform performance/error analysis based on ATC classes, and interactively represent the underlying embeddings and predictive behaviors.
 
 ### Auxiliary Folders
-- `scripts/`: Command-line entrypoints to invoke batch model training.
-- `tests/`: Unit test suite ensuring the reliability of the core package logic.
-- `analysis/`, `data_preparation/`, `legacy/`: Notebooks and data-wrangling scripts previously used for parsing sources and evaluating isolated sub-processes.
+- `analysis/`, `data_preparation/`: Notebooks and data-wrangling scripts previously used for parsing sources and evaluating isolated sub-processes.
 
 ## Quickstart
 
