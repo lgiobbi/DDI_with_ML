@@ -2,6 +2,14 @@
 
 This repository contains the codebase and empirical research for predicting Drug-Drug Interactions (DDIs) using Graph Neural Networks (GNNs) enriched with Large Language Model (LLM) textual embeddings.
 
+## 🚀 Key Highlights
+
+- **LLM-Enriched Graph Learning:** Leverages OpenAI's `text-embedding-ada-002` to semantically enrich drug nodes based on DrugBank clinical descriptions. This semantic integration acts as the key driver for predictive improvements, significantly outperforming purely structural, non-informative feature baselines.
+- **Significant Performance Gains:** Empirically demonstrates an increase in ROC-AUC from 0.66 to 0.78 and PR-AUC from 0.96 to 0.98 compared to non-informative baseline graph initializations.
+- **Unsupervised Contextual Clustering:** Latent space topological representations learned by the model naturally group drugs in accordance with their established Anatomical Therapeutic Chemical (ATC) classifications, capturing underlying biochemical properties without explicit ATC label supervision.
+- **Robust Link Prediction:** Employs a Graph Convolutional Network (GCN) to reliably predict interactions on a unified pharmacological knowledge graph, effectively merging the densely connected ChCh-Miner network with the clinically validated CRESCENDDI reference set.
+- **Optimized for Class Imbalance:** Systematically isolates true interactions out of severe edge imbalance by calibrating a weighted binary cross-entropy loss against highly curated, clinical negative controls.
+
 ## Project Architecture
 
 The project workflow relies on two primary components:
