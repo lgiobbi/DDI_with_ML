@@ -87,7 +87,7 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 #
 # Drug-drug interactions (DDIs) are a major source of preventable adverse drug reactions in polypharmacy settings, yet exhaustive experimental screening remains costly and incomplete. This report studies DDI prediction as a link prediction problem on a harmonized pharmacological graph built by integrating the ChCh-Miner interaction network with clinically curated controls from CRESCENDDI. We evaluate a Graph Convolutional Network (GCN) that combines graph topology with semantic node attributes derived from DrugBank textual descriptions, embedded using OpenAI's `text-embedding-ada-002`, and we compare this setting against a non-informative feature baseline.
 #
-# Semantic enrichment of node features appears to be a major contributor to improved predictive performance. In particular, the inclusion of clinically validated negative controls points toward further gains when such high-quality signals are more fully integrated into the dataset. Overall, the findings support LLM-enhanced graph learning as a practical and promising direction for computational pharmacovigilance and drug safety screening.
+# Semantic enrichment of node features appears to be a major contributor to improved predictive performance. In particular, the inclusion of clinically validated negative controls points toward further gains when such high-quality signals are integrated into the dataset. Overall, the findings support LLM-enhanced graph learning as a practical and promising direction for computational pharmacovigilance and drug safety screening.
 
 # %% [markdown]
 # # 1 Introduction
@@ -308,7 +308,7 @@ plot_experiment_results(settings_results, title_suffix="Loss Setting", filename=
 # %% [markdown]
 # ## 3.2 Evaluating Node Feature Representations
 #
-# Having established the optimal loss configuration from the above experiments, we now systematically evaluate the impact of input node features. We benchmark a baseline, non-informative feature strategy (an initial node feature vector uniformly initialized to ones, denoted as `__ONES__`) against dense, domain-focused LLM-derived features generated via OpenAI's text-embedding-ada-002 model (`DESC_GPT`).
+# Having established the optimal loss configuration from the above experiments, we now systematically evaluate the impact of input node features. We compare two node feature strategies: a non-informative baseline using uniformly initialized all-ones feature vectors (__ONES__), and semantically enriched embeddings derived from drug descriptions using OpenAI’s text-embedding-ada-002 model (DESC_GPT).
 #
 # ### 3.2.1 LLM Embeddings vs. Baseline Initialization
 #

@@ -65,7 +65,7 @@ Run the notebook from top to bottom. Results and visualizations will automatical
 To generate a customized, styled HTML version of the report (with centered images/tables, properly sized code cells, and hidden warnings), run the following command from the root of the workspace using your activated virtual environment:
 
 ```bash
-jupyter nbconvert --to html --template=report/mytemplate report/report.ipynb
+jupyter nbconvert --to html --template=report/mytemplate report/report.ipynb --no-input
 ```
 
 This command uses a customized custom Jupyter template located in `report/mytemplate` to build the final HTML file.

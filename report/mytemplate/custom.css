@@ -49,6 +49,11 @@
     margin-right: auto !important;
 }
 
+/* Make Mermaid architecture graph larger */
+.jp-OutputArea-output img[src^="https://mermaid.ink/img/"] {
+    max-width: 100% !important;
+}
+
 /* Remove warnings (stderr outputs) */
 .jp-OutputArea-output[data-mime-type="application/vnd.jupyter.stderr"] {
     display: none !important;
