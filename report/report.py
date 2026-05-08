@@ -431,6 +431,9 @@ plot_pharma_class_error_rates(embedding)
 render_interactive_visualization(embedding, test_data, test_scores, threshold, reversed_node_id_map)
 
 # %% [markdown]
+# ![tsne-demo.png](attachment:tsne-demo.png)
+
+# %% [markdown]
 # # 4 Discussion
 #
 # In this study, we investigated the combination of Graph Convolutional Networks (GCNs) with Large Language Model (LLM)–derived feature embeddings for the task of predicting drug–drug interactions (DDIs). By harmonizing the ChCh-Miner interaction network with the clinically validated CRESCENDDI reference set, we constructed a high-confidence benchmark graph for learning interaction patterns. A central component of this setup is the use of clinically curated negative controls, which provide a more reliable basis for distinguishing true interactions from non-interactions during training.
