@@ -44,6 +44,8 @@
 #
 # May 2026
 #
+# <br><br>
+#
 # </div>
 
 # %%
@@ -223,8 +225,9 @@ render_model_architecture()
 # Combining these choices yields six training configurations, covering all combinations of loss type, negative balancing strategy, and negative source selection. This setup allows us to isolate the effect of each component under consistent feature representations.
 
 # %% [markdown]
-# ### 3.1.1 Optimizing individual losses
-
+# ### 3.1.1 Optimizing individual 
+#
+# In the following, we provide a summary table of our run settings and the results of the different experiments.
 # %%
 settings = [
     {
@@ -297,8 +300,6 @@ _ = display_training_set_configurations(settings)
 plot_experiment_results(settings_results, title_suffix="Loss Setting", filename="report_grid.png")
 
 # %% [markdown]
-# ### 3.1.2 Summary of Empirical Findings
-#
 # Across all evaluated configurations, applying a reduced positive-class weighting with positive loss multiplier scaled down to $\approx 0.5$ relative to the class ratio consistently outperformed the standard unweighted binary cross-entropy loss. This indicates that explicitly correcting for class imbalance via loss reweighting is beneficial for stable training.
 #
 # We further observe that the choice of negative examples has a strong impact on performance. Using clinically validated negatives from CRESCENDDI generally leads to better results than relying on uniformly sampled negatives from the unlabeled interaction space, particularly when combined with loss weighting to account for the smaller negative set. This suggests that curated non-interactions provide a higher-quality learning signal.

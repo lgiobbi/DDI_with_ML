@@ -7839,6 +7839,11 @@ a.anchor-link {
     margin-right: auto !important;
 }
 
+/* Hide the pandas dataframes */
+table.dataframe {
+    display: none !important;
+}
+
 /* Optional: shrink plots/images slightly */
 .jp-OutputArea-output img {
     max-width: 50%;
@@ -7847,7 +7852,7 @@ a.anchor-link {
     margin-right: auto !important;
 }
 
-/* Make Mermaid architecture graph specifically 1.6x larger (50% * 1.6 = 80%) */
+/* Make Mermaid architecture graph larger */
 .jp-OutputArea-output img[src^="https://mermaid.ink/img/"] {
     max-width: 100% !important;
 }
@@ -7855,6 +7860,40 @@ a.anchor-link {
 /* Remove warnings (stderr outputs) */
 .jp-OutputArea-output[data-mime-type="application/vnd.jupyter.stderr"] {
     display: none !important;
+}
+
+/* Hide plain text output (stdout logs) to remove the "=== Running..." text */
+.jp-OutputArea-output[data-mime-type="text/plain"] pre {
+    display: none !important;
+}
+
+/* Specifically show the "Threshold: " plain text output which would otherwise be hidden by the rule above. 
+   We do this by using a wild CSS hack or simply hiding plain text everywhere EXCEPT where we want it */
+.jp-OutputArea-output[data-mime-type="text/plain"] {
+    display: none !important; /* Hide ALL standard plain text outputs by default */
+}
+
+/* Hide the specific generated metric headers */
+h5[id^="Summary-of-Metrics-"] {
+    display: none !important;
+}
+
+h3[id="Training-Set-Configurations"] {
+    display: none !important;
+}
+
+/* Center the title block specifically */
+div[align="center"] {
+    text-align: center !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Ensure text inside blocks (like p or span) within the centered div actually aligns center text-wise */
+div[align="center"] * {
+    text-align: center !important;
 }
 </style>
 </head>
@@ -7884,6 +7923,7 @@ Dr. Paraskevi Nousi | Dr. Maxim Samarin</p>
 ETH Zurich</br></p>
 <p><br/><br/></p>
 <p>May 2026</p>
+<p><br/><br/></p>
 </div>
 </div>
 </div>
@@ -8025,7 +8065,7 @@ Stochastic gradient descent is performed via the Adam optimizer using an initial
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="3.1.1-Optimizing-individual-losses">3.1.1 Optimizing individual losses<a class="anchor-link" href="#3.1.1-Optimizing-individual-losses">¶</a></h3>
+<h3 id="3.1.1-Optimizing-individual">3.1.1 Optimizing individual<a class="anchor-link" href="#3.1.1-Optimizing-individual">¶</a></h3><p>In the following, we provide a summary table of our run settings and the results of the different experiments.</p>
 </div>
 </div>
 </div>
@@ -8258,7 +8298,7 @@ repetitions: 5
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="3.1.2-Summary-of-Empirical-Findings">3.1.2 Summary of Empirical Findings<a class="anchor-link" href="#3.1.2-Summary-of-Empirical-Findings">¶</a></h3><p>Across all evaluated configurations, applying a reduced positive-class weighting with positive loss multiplier scaled down to $\approx 0.5$ relative to the class ratio consistently outperformed the standard unweighted binary cross-entropy loss. This indicates that explicitly correcting for class imbalance via loss reweighting is beneficial for stable training.</p>
+<p>Across all evaluated configurations, applying a reduced positive-class weighting with positive loss multiplier scaled down to $\approx 0.5$ relative to the class ratio consistently outperformed the standard unweighted binary cross-entropy loss. This indicates that explicitly correcting for class imbalance via loss reweighting is beneficial for stable training.</p>
 <p>We further observe that the choice of negative examples has a strong impact on performance. Using clinically validated negatives from CRESCENDDI generally leads to better results than relying on uniformly sampled negatives from the unlabeled interaction space, particularly when combined with loss weighting to account for the smaller negative set. This suggests that curated non-interactions provide a higher-quality learning signal.</p>
 <p>In contrast, artificially upsampling negatives to enforce class balance does not improve performance and can even reduce validation quality in some settings. Overall, the most effective configuration preserves the empirically observed class distribution and addresses imbalance through weighted loss rather than data resampling.</p>
 </div>

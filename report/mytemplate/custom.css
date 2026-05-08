@@ -41,6 +41,11 @@
     margin-right: auto !important;
 }
 
+/* Hide the pandas dataframes */
+table.dataframe {
+    display: none !important;
+}
+
 /* Optional: shrink plots/images slightly */
 .jp-OutputArea-output img {
     max-width: 50%;
@@ -57,4 +62,38 @@
 /* Remove warnings (stderr outputs) */
 .jp-OutputArea-output[data-mime-type="application/vnd.jupyter.stderr"] {
     display: none !important;
+}
+
+/* Hide plain text output (stdout logs) to remove the "=== Running..." text */
+.jp-OutputArea-output[data-mime-type="text/plain"] pre {
+    display: none !important;
+}
+
+/* Specifically show the "Threshold: " plain text output which would otherwise be hidden by the rule above. 
+   We do this by using a wild CSS hack or simply hiding plain text everywhere EXCEPT where we want it */
+.jp-OutputArea-output[data-mime-type="text/plain"] {
+    display: none !important; /* Hide ALL standard plain text outputs by default */
+}
+
+/* Hide the specific generated metric headers */
+h5[id^="Summary-of-Metrics-"] {
+    display: none !important;
+}
+
+h3[id="Training-Set-Configurations"] {
+    display: none !important;
+}
+
+/* Center the title block specifically */
+div[align="center"] {
+    text-align: center !important;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Ensure text inside blocks (like p or span) within the centered div actually aligns center text-wise */
+div[align="center"] * {
+    text-align: center !important;
 }
