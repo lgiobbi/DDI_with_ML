@@ -59,3 +59,13 @@ logging.getLogger("ddi_graph_neural_network").setLevel(logging.DEBUG)
 ```
 
 Run the notebook from top to bottom. Results and visualizations will automatically output to the `report_outputs/` directory inside this folder.
+
+## 4. Exporting to HTML
+
+To generate a customized, styled HTML version of the report (with centered images/tables, properly sized code cells, and hidden warnings), run the following command from the root of the workspace using your activated virtual environment:
+
+```bash
+jupyter nbconvert --to html --template=report/mytemplate report/report.ipynb
+```
+
+This command uses a customized custom Jupyter template located in `report/mytemplate` to build the final HTML file.

@@ -47,6 +47,7 @@ checkpoints/
 models/
 *.pt
 *.pth
+*.zip
 
 # Environment and dependency files
 pip-wheel-metadata/
