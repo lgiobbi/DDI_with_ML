@@ -85,9 +85,9 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 # %% [markdown]
 # # Abstract
 #
-# Drug-drug interactions (DDIs) are a major source of preventable adverse drug reactions in polypharmacy settings, yet exhaustive experimental screening remains costly and incomplete. This report studies DDI prediction as a link prediction problem on a harmonized pharmacological graph built by integrating the ChCh-Miner interaction network with clinically curated controls from CRESCENDDI. We evaluate a Graph Convolutional Network (GCN) that combines graph topology with semantic node attributes derived from DrugBank textual descriptions embedded using OpenAI's `text-embedding-ada-002`, and we compare this setting against a non-informative feature baseline.
+# Drug-drug interactions (DDIs) are a major source of preventable adverse drug reactions in polypharmacy settings, yet exhaustive experimental screening remains costly and incomplete. This report studies DDI prediction as a link prediction problem on a harmonized pharmacological graph built by integrating the ChCh-Miner interaction network with clinically curated controls from CRESCENDDI. We evaluate a Graph Convolutional Network (GCN) that combines graph topology with semantic node attributes derived from DrugBank textual descriptions, embedded using OpenAI's `text-embedding-ada-002`, and we compare this setting against a non-informative feature baseline.
 #
-# Semantic enrichment of node features emerges as the key driver of improved predictive performance. In particular, the inclusion of clinically validated negative controls points toward further gains when such high-quality signals are more fully integrated into the dataset. Overall, the findings support LLM-enhanced graph learning as a practical and promising direction for computational pharmacovigilance and drug safety screening.
+# Semantic enrichment of node features appears to be a major contributor to improved predictive performance. In particular, the inclusion of clinically validated negative controls points toward further gains when such high-quality signals are more fully integrated into the dataset. Overall, the findings support LLM-enhanced graph learning as a practical and promising direction for computational pharmacovigilance and drug safety screening.
 
 # %% [markdown]
 # # 1 Introduction
@@ -96,23 +96,23 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 #
 # Traditionally, identifying DDIs relied heavily on *in vivo* and *in vitro* laboratory research or premarketing clinical trials. However, these conventional approaches are expensive, time-consuming, and constrained by small sample sizes and brief exposure periods. Consequently, many interactions and critical safety issues often go unnoticed until post-marketing surveillance and wider population exposure. To overcome these limitations, the scientific community has increasingly turned to computational methods. By representing known DDIs accumulated in large biomedical databases, machine learning models can efficiently predict unobserved interactions, serving as highly scalable early-warning systems in pharmacovigilance [[qiu2022_ddi]](#qiu2022_ddi), [[zhao2024_ddi]](#zhao2024_ddi).
 #
-# This report evaluates a machine learning approach for detecting clinically relevant drug–drug interactions by framing the task as link prediction on a unified knowledge graph. The central contribution lies in enriching the graph with semantic pharmacological information: dense embeddings derived from clinical drug descriptions using a Large Language Model serve as node features, allowing the model to move beyond purely structural signals. These features are processed through a Graph Convolutional Network, enabling the integration of relational and semantic context. Particular attention is given to handling class imbalance during training, ensuring robust learning. Overall, the work focuses on how semantic enrichment strengthens predictive performance and supports more meaningful therapeutic insights.
+# This report evaluates a machine learning approach for detecting clinically relevant drug-drug interactions by framing the task as link prediction on a unified knowledge graph. The central contribution lies in enriching the graph with semantic pharmacological information: dense embeddings generated using a Large Language Model serve as node features, allowing the model to move beyond purely structural signals. These features are processed through a Graph Convolutional Network, enabling the integration of relational and semantic context. Particular attention is given to handling class imbalance during training, ensuring robust learning. Overall, the work focuses on how semantic enrichment strengthens predictive performance and supports more meaningful therapeutic insights.
 
 # %% [markdown]
 # # 2 Materials and Methods
 #
-# This section details the datasets used for the empirical evaluation, how the interaction graph was harmonized, and outlines the machine learning architecture employed for the link prediction task.
+# This section details the datasets used for the empirical evaluation, explains how the interaction graph was harmonized, and outlines the machine learning architecture employed for the link prediction task.
 #
 # ## 2.1 Dataset
 #
-# We used a combination of a large-scale interaction network (ChCh-Miner) and a clinically validated reference set (CRESCENDDI) to construct a unified and reliable benchmark for drug–drug interaction prediction. To move beyond purely structural information, drug nodes were enriched with semantic features derived from clinical descriptions, as described below.
+# We used a combination of a large-scale interaction network (ChCh-Miner) and a clinically validated reference set (CRESCENDDI) to construct a unified and reliable benchmark for drug-drug interaction prediction. To move beyond purely structural information, drug nodes were enriched with semantic features derived from clinical descriptions, as described below.
 #
 # ### 2.1.1 Graph
 # Our empirical evaluation relies on a robust and unified reference dataset that merges large-scale graph representations of drug knowledge with clinically validated interaction endpoints. To construct this benchmark, we integrated data from two primary resources: the ChCh-Miner network and the CRESCENDDI reference set.
 #
 # **ChCh-Miner Network**  
 #
-# The ChCh-Miner dataset is a curated drug–drug interaction (DDI) network of U.S. Food and Drug Administration (FDA)-approved drugs, originally derived from the DrugBank database and built using the MINER parser. It is represented as an undirected graph where nodes correspond to distinct pharmaceutical compounds and edges indicate documented interactions based on drug labels and scientific literature. The resulting graph is densely connected, comprising 1,514 nodes and 48,514 edges. The dataset exhibits strong local clustering, with a clustering coefficient of 0.30, and the largest strongly connected component encompasses nearly the entire network (1,510 nodes and 48,512 edges) [[chchminer]](#chchminer).
+# The ChCh-Miner dataset is a curated drug-drug interaction (DDI) network of U.S. Food and Drug Administration (FDA)-approved drugs, originally derived from the DrugBank database and built using the MINER parser. It is represented as an undirected graph where nodes correspond to distinct pharmaceutical compounds and edges indicate documented interactions based on drug labels and scientific literature. The resulting graph is densely connected, comprising 1,514 nodes and 48,514 edges. The dataset exhibits strong local clustering, with a clustering coefficient of 0.30, and the largest connected component encompasses nearly the entire network (1,510 nodes and 48,512 edges) [[chchminer]](#chchminer).
 #
 # **CRESCENDDI Reference Set**  
 #
@@ -128,7 +128,7 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 #
 # From 14,830 initial paired assertions, 414 edges were removed due to unresolved mappings to DrugBank identifiers. Since drug interactions are symmetric, all pairs were canonicalized by sorting identifiers and eliminating duplicates, reducing redundancy from 14,416 intermediate edges by 5,625 cases.
 #
-# Finally, we enforced strict consistency between datasets by removing CRESCENDDI negative controls that overlapped with confirmed positive interactions in ChCh-Miner. The resulting harmonized graph contains 8,791 unique drug–drug interactions.
+# Finally, we enforced strict consistency between datasets by removing CRESCENDDI negative controls that overlapped with confirmed positive interactions in ChCh-Miner. The resulting harmonized graph contains 8,791 unique drug-drug interactions.
 #
 
 # %% [markdown]
@@ -136,11 +136,11 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 #
 # To enrich the structural interaction data with robust semantic, biochemical, and clinical context, we incorporate dense text embeddings as initial node features ($\mathbf{x}_v$) within our graph model. 
 #
-# Brief, domain-specific textual descriptions for each pharmaceutical compound were originally sourced from the DrugBank database [[drugbank]](#drugbank). For our empirical pipeline, we directly utilized the curated textual preparations publicly provided by the DDI-LLM framework [[ddillm]](#ddillm). 
+# Brief domain-specific textual descriptions for each pharmaceutical compound were sourced from the DrugBank database [[drugbank]](#drugbank). For our empirical pipeline, we directly utilized the curated textual preparations publicly provided by the DDI-LLM framework [[ddillm]](#ddillm). 
 #
-# These variable-length qualitative descriptions were computationally mapped into a continuous, fixed-dimensional real coordinate space using OpenAI's `text-embedding-ada-002` model [[openai_ada]](#openai_ada). Such text embeddings explicitly encode semantic relationships geometrically, guaranteeing that biologically or chemically related drugs occupy proximate regions within the embedding space. This structure subsequently enables nearest-neighbor retrieval and quantitative comparisons typically evaluated via cosine similarity. Off-the-shelf embeddings constructed by large language models have been demonstrably shown to capture transferable semantic structure highly beneficial as functional priors for downstream graph learning tasks [[text_embeddings]](#text_embeddings). 
+# These variable-length qualitative descriptions were computationally mapped into a continuous, fixed-dimensional real coordinate space using OpenAI's `text-embedding-ada-002` model [[openai_ada]](#openai_ada). Such text embeddings explicitly encode semantic relationships geometrically, such that biologically or chemically related drugs tend to occupy proximate regions within the embedding space. This structure subsequently enables nearest-neighbor retrieval and quantitative comparisons typically evaluated via cosine similarity. Off-the-shelf embeddings constructed by large language models have been demonstrably shown to capture transferable semantic structure highly beneficial as functional priors for downstream graph learning tasks [[text_embeddings]](#text_embeddings). 
 #
-# These semantic vectors are used as initial node features in the Graph Convolutional Network, replacing a naive baseline of constant, non-informative inputs (all-one vectors). This allows the model to operate directly on semantically informed representations rather than purely uniform feature initializations.
+# These semantic vectors are used as initial node features in the Graph Convolutional Network, replacing a naïve baseline of constant, non-informative inputs (all-ones vectors). This allows the model to operate directly on semantically informed representations rather than purely uniform feature initializations.
 #
 #
 
@@ -165,7 +165,7 @@ os.environ.update({k: "1" for k in ["OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "
 # - $\mathbf{W}^{(l)}$ is the layer-specific trainable weight matrix.
 #
 # **Network Configuration:** 
-# The network consists of three layers. The first layer projects the initial $d$-dimensional input features into a 256-dimensional hidden space. The second and third layers maintain this 256-dimensional representation. To introduce non-linearity and combat severe overfitting, we apply a Rectified Linear Unit (ReLU) and Dropout regularization (with rate $p=0.3$) after the first and second convolutional operations. The final layer emits the encoded vertex embeddings $\mathbf{z}_v \in \mathbb{R}^{256}$ without additional non-linear activations.
+# The network consists of three layers. The first layer projects the initial $d$-dimensional input features into a 256-dimensional hidden space. The second and third layers maintain this 256-dimensional representation. To introduce nonlinearity and combat severe overfitting, we apply a Rectified Linear Unit (ReLU) and Dropout regularization (with rate $p=0.3$) after the first and second convolutional operations. The final layer emits the encoded vertex embeddings $\mathbf{z}_v \in \mathbb{R}^{256}$ without additional nonlinear activations.
 #
 # ### 2.2.2 Pairwise Dot-Product Decoder
 # To predict the absence or presence of an interaction between two drugs $u$ and $v$, the decoder acts directly on the learned latent representations $\mathbf{z}_u$ and $\mathbf{z}_v$. We employ a symmetric inner-product (dot-product) decoder to model the structural similarity in the embedded space:
@@ -216,7 +216,7 @@ render_model_architecture()
 #
 # **Experimental Design**
 #
-# To identify an optimal model configuration, we systematically evaluate six distinct training setups derived from combinations of loss formulation and negative sampling strategy. Across all experiments, OpenAI's ADA description embeddings are used as fixed initial node features.
+# To identify an optimal model configuration, we systematically evaluate six distinct training setups derived from combinations of loss formulation and negative sampling strategy. Across all experiments, OpenAI text-embedding-ada-002 embeddings are used as fixed initial node features.
 #
 # The design space is defined by three binary factors. First, we compare a standard binary cross-entropy loss (BCEWithLogitsLoss) against a weighted variant that applies a reduced positive-class scaling (pos-loss multiplier of 0.5) to account for class imbalance. Second, we vary whether negative examples are upsampled to match the number of positives or left in their original empirical proportion. Third, we distinguish between using randomly sampled negatives from the unlabeled space versus restricting training to validated negatives only, as controlled by the use_only_sampled_negatives_in_train flag.
 #
@@ -308,11 +308,11 @@ plot_experiment_results(settings_results, title_suffix="Loss Setting", filename=
 # %% [markdown]
 # ## 3.2 Evaluating Node Feature Representations
 #
-# Having established the optimal loss configuration from the above experiments, we now systematically evaluate the impact of input node features. We benchmark a baseline, non-informative feature strategy (an initial node feature vector uniformly initialized to ones, denoted as `__ONES__`) against dense, domain-focused LLM-derived features generated via OpenAI's ADA model (`DESC_GPT`).
+# Having established the optimal loss configuration from the above experiments, we now systematically evaluate the impact of input node features. We benchmark a baseline, non-informative feature strategy (an initial node feature vector uniformly initialized to ones, denoted as `__ONES__`) against dense, domain-focused LLM-derived features generated via OpenAI's text-embedding-ada-002 model (`DESC_GPT`).
 #
 # ### 3.2.1 LLM Embeddings vs. Baseline Initialization
 #
-# Throughout these downstream experimental evaluations, all auxiliary components of the learning pipeline—including the training/test splits, optimal weighted BCE loss configuration, network architectural sizes, and all associated training hyperparameters—were held strictly constant. By keeping the underlying topological processing and optimization framework frozen, any resulting variance precisely isolates the true classification capability gain, allowing improvements in validation metrics to be explicitly attributed to the underlying semantic knowledge captured by the embedded structural representations.
+# Throughout these downstream experimental evaluations, all auxiliary components of the learning pipeline—including the training/test splits, optimal weighted BCE loss configuration, network architectural sizes, and all associated training hyperparameters—were kept constant. By keeping the underlying topological processing and optimization framework fixed, performance differences can more plausibly be attributed to the feature representations.
 
 # %%
 feature_settings = [
@@ -351,18 +351,18 @@ plot_experiment_results(feature_results, title_suffix="Feature", filename="repor
 # %% [markdown]
 # Across both evaluation metrics, we observe a clear and consistent improvement in predictive performance when incorporating LLM-derived description embeddings as node features.
 #
-# In terms of the area under the receiver operating characteristic curve (ROC-AUC), the model shows a substantial gain, indicating a markedly improved ability to distinguish between interacting (positive) and non-interacting (negative) drug pairs across all decision thresholds. This reflects a stronger overall ranking quality of predicted interactions.
+# In terms of the Receiver Operating Characteristic Area Under the Curve (ROC-AUC), the model shows a substantial gain, indicating a markedly improved ability to distinguish between interacting (positive) and non-interacting (negative) drug pairs across all decision thresholds. This reflects a stronger overall ranking quality of predicted interactions.
 #
-# A similarly strong improvement is observed in the precision-recall AUC (PR-AUC), which is particularly relevant in the presence of class imbalance. The increase in PR-AUC indicates that the model achieves a better balance between precision and recall when identifying drug–drug interactions, meaning it is more effective at maintaining high sensitivity to true interactions while reducing false positives. Overall, these results suggest that the semantic information encoded in the embeddings provides a meaningful inductive signal that enhances the model’s ability to learn discriminative representations of drug relationships.
+# A similarly strong improvement is observed in the Precision-Recall Area Under the Curve (PR-AUC), which is particularly relevant in the presence of class imbalance. The increase in PR-AUC indicates that the model achieves a better balance between precision and recall when identifying drug-drug interactions, meaning it is more effective at maintaining high sensitivity to true interactions while reducing false positives. Overall, these results suggest that the semantic information encoded in the embeddings provides a meaningful inductive signal that enhances the model’s ability to learn discriminative representations of drug relationships.
 
 # %% [markdown]
 # ## 3.3 Final Model Evaluation
 #
-# In this section, we evaluate the model in its best-performing configuration, using GPT-3–derived embeddings of drug descriptions as node features together with a weighted binary cross-entropy loss and without upsampling of negative examples. For comparability across experiments and to enable a more interpretable confusion matrix, we calibrate the decision threshold such that the predicted positive and negative classes are balanced.
+# In this section, we evaluate the model in its best-performing configuration, using OpenAI text-embedding-ada-002 embeddings of drug descriptions as node features together with a weighted binary cross-entropy loss and without upsampling of negative examples. For comparability across experiments and to enable a more interpretable confusion matrix, we calibrate the decision threshold such that the predicted positive and negative classes are balanced.
 #
-# In this optimal setup, the inclusion of semantic description embeddings emerges as a key driver of performance improvements over the constant-feature baseline. The results indicate that providing the model with semantically informed node representations substantially strengthens its ability to learn meaningful interaction patterns in the data.
+# In this optimal setup, the inclusion of semantic description embeddings appears to be a major contributor to performance improvements over the constant-feature baseline. The results indicate that providing the model with semantically informed node representations substantially strengthens its ability to learn meaningful interaction patterns in the data.
 #
-# To better understand the nature of this improvement, we complement the aggregate metrics with a set of exploratory analyses presented in the following sections. While these results consistently point toward the benefit of semantic enrichment, further ablation studies are necessary to disentangle the individual contributions of the desciptions and to fully assess the robustness and statistical significance of the observed gains.
+# To better understand the nature of this improvement, we complement the aggregate metrics with a set of exploratory analyses presented in the following sections. While these results consistently point toward the benefit of semantic enrichment, further ablation studies are necessary to disentangle the individual contributions of the descriptions and to fully assess the robustness and statistical significance of the observed gains.
 
 # %%
 # Run the model using the analysis config
@@ -416,9 +416,9 @@ plot_pharma_class_error_rates(embedding)
 # %% [markdown]
 # ### 3.3.2 Latent Space Representation Learning
 #
-# To investigate what structural information is captured from drug descriptions and how it relates to improved predictive performance, we analyze the learned representations using a two-dimensional t-SNE projection of test-set embeddings. We compare two representation spaces: the original input space defined by GPT-3–derived drug description embeddings, and the latent space produced by the trained graph convolutional network after message passing on these features.
+# To investigate what structural information is captured from drug descriptions and how it relates to improved predictive performance, we analyze the learned representations using a two-dimensional t-SNE projection of test-set embeddings. We compare two representation spaces: the original input space defined by OpenAI text-embedding-ada-002 drug description embeddings, and the latent space produced by the trained graph convolutional network after message passing on these features.
 #
-# Across both spaces, we observe that clustering patterns are largely aligned with ATC drug class membership. This suggests that therapeutic classification encodes meaningful underlying chemical and biological structure, which is reflected in the representations learned by the model for interaction prediction.
+# Across both spaces, we observe that clustering patterns are largely aligned with ATC drug class membership. This suggests that therapeutic classification encodes meaningful underlying chemical and biological structure, which is reflected in the representations learned by the model.
 #
 # #### Interactive Visualization
 #
@@ -436,7 +436,7 @@ render_interactive_visualization(embedding, test_data, test_scores, threshold, r
 # %% [markdown]
 # # 4 Discussion
 #
-# In this study, we investigated the combination of Graph Convolutional Networks (GCNs) with Large Language Model (LLM)–derived feature embeddings for the task of predicting drug–drug interactions (DDIs). By harmonizing the ChCh-Miner interaction network with the clinically validated CRESCENDDI reference set, we constructed a high-confidence benchmark graph for learning interaction patterns. A central component of this setup is the use of clinically curated negative controls, which provide a more reliable basis for distinguishing true interactions from non-interactions during training.
+# In this study, we investigated the combination of Graph Convolutional Networks (GCNs) with Large Language Model (LLM)–derived feature embeddings for the task of predicting drug-drug interactions (DDIs). By harmonizing the ChCh-Miner interaction network with the clinically validated CRESCENDDI reference set, we constructed a high-confidence benchmark graph for learning interaction patterns. A central component of this setup is the use of clinically curated negative controls, which provide a more reliable basis for distinguishing true interactions from non-interactions during training.
 #
 # Across all experiments, we observe that enriching nodes with domain-specific textual descriptions encoded via OpenAI’s text-embedding-ada-002 leads to a substantial improvement in predictive performance. Relative to a non-informative baseline, this semantic enrichment increases ROC-AUC from 0.66 to 0.78 and PR-AUC from 0.96 to 0.98, demonstrating a consistently improved ability to separate interacting from non-interacting drug pairs.
 #
@@ -444,7 +444,7 @@ render_interactive_visualization(embedding, test_data, test_scores, threshold, r
 #
 # Beyond aggregate performance metrics, the learned representations reveal meaningful structural organization. t-SNE projections of the latent space show that drug embeddings cluster in accordance with Anatomical Therapeutic Chemical (ATC) classifications. This suggests that the model successfully integrates semantic information from unstructured drug descriptions with graph topology to recover biologically and therapeutically coherent structure, even without explicit supervision on ATC labels.
 #
-# Despite strong overall results, the ATC-level error analysis highlights systematic variation in performance across therapeutic classes. Drugs targeting the nervous and respiratory systems, in particular, exhibit lower misclassification rates than other categories. It remains unclear whether this reflects inherent differences in the predictability of these drug classes or structural properties of the dataset, such as variations in class size, interaction density, or label distribution within ChCh-Miner. These observations underscore the need for further ablation studies to disentangle biological signal from dataset-induced bias and to better understand model behavior in different therapeutic regimes.
+# Despite strong overall results, the ATC-level error analysis highlights systematic variation in performance across therapeutic classes. Drugs targeting the nervous and respiratory systems, in particular, exhibit lower misclassification rates than other categories. It remains unclear whether this reflects inherent differences in the predictability of these drug classes or structural properties of the dataset, such as variations in the underlying data structure. These observations underscore the need for further ablation studies to disentangle biological signal from dataset-induced bias and to better understand model behavior in different therapeutic regimes.
 
 # %% [markdown]
 # ## 4.1 Future Work and Open Points
@@ -453,7 +453,7 @@ render_interactive_visualization(embedding, test_data, test_scores, threshold, r
 #
 # A first key limitation concerns the interpretability of the learned signal. While the model benefits from LLM-derived embeddings, it is not yet clear which aspects of these representations drive performance gains. As a next step, we therefore propose systematic ablation studies that replace semantic embeddings with simpler encodings, such as one-hot ATC class vectors. This would help disentangle whether the model primarily leverages broad therapeutic structure or whether it captures more fine-grained biochemical and pharmacological relationships encoded in the text. More generally, understanding which latent factors—such as pharmacokinetic properties, target affinities, or mechanistic descriptions—are most influential remains an open question.
 #
-# Closely related to this is the question of evaluation robustness. While our current benchmark provides strong internal validation, future work should extend the evaluation to the Open Graph Benchmark ogbl-ddi dataset [[ogb]](#ogb). Unlike random split settings, this dataset introduces a protein-target-based separation between train and test drugs, forcing the model to generalize to unseen biological mechanisms rather than relying on similarity to known compounds. This makes it a more realistic and challenging testbed for drug–drug interaction prediction, with performance evaluated under a ranking-based metric (Hits@K) over a large set of candidate negatives [[guney2017]](#guney2017).
+# Closely related to this is the question of evaluation robustness. While our current benchmark provides strong internal validation, future work should extend the evaluation to the Open Graph Benchmark ogbl-ddi dataset [[ogb]](#ogb). Unlike random split settings, this dataset introduces a split based on protein targets between train and test drugs, forcing the model to generalize to unseen biological mechanisms rather than relying on similarity to known compounds. This makes it a more realistic and challenging testbed for drug-drug interaction prediction, with performance evaluated under a ranking-based metric (Hits@K) over a large set of candidate negatives [[guney2017]](#guney2017).
 #
 # Furthermore, our results indicate that the use of CRESCENDDI negative controls contributes to improved model performance compared to alternative negative sampling strategies. Beyond providing binary labels for non-interactions, the CRESCENDDI dataset also includes confidence annotations for these negative controls. In future work, these confidence signals could be incorporated directly into the training objective to further refine the learning process and potentially improve predictive accuracy.
 #
@@ -462,7 +462,7 @@ render_interactive_visualization(embedding, test_data, test_scores, threshold, r
 # %% [markdown]
 # # 5 Conclusion
 #
-# In conclusion, this study demonstrates the value of integrating modern natural language representations into graph-based models for drug–drug interaction (DDI) prediction. By augmenting a Graph Convolutional Network with dense semantic embeddings derived from LLM-encoded drug descriptions, we observe a clear improvement in predictive performance compared to non-informative feature baselines. In parallel, our experiments highlight the importance of a carefully designed learning setup: in particular, training on clinically validated negative examples combined with an appropriately scaled binary cross-entropy loss leads to stronger generalization than relying on uniformly sampled negatives.
+# In conclusion, this study demonstrates the value of integrating modern natural language representations into graph-based models for drug-drug interaction (DDI) prediction. By augmenting a Graph Convolutional Network with dense semantic embeddings derived from LLM-encoded drug descriptions, we observe a clear improvement in predictive performance compared to non-informative feature baselines. In parallel, our experiments highlight the importance of a carefully designed learning setup: in particular, training on clinically validated negative examples combined with an appropriately scaled binary cross-entropy loss leads to stronger generalization than relying on uniformly sampled negatives.
 #
 # Beyond aggregate performance, the model learns meaningful structure in the data, as reflected in ATC-aligned clustering in the latent space and consistent patterns in the error analysis. At the same time, remaining performance differences across therapeutic classes indicate that dataset composition and biological complexity may still influence model behavior.
 #
@@ -473,7 +473,7 @@ render_interactive_visualization(embedding, test_data, test_scores, threshold, r
 #
 # **[qiu2022_ddi]** <span id="qiu2022_ddi">Qiu, Y., Zhang, Y., Deng, Y., Liu, S., and Zhang, W. (2022). "A Comprehensive Review of Computational Methods for Drug-Drug Interaction Detection." *IEEE/ACM Transactions on Computational Biology and Bioinformatics*, vol. 19, no. 4, pp. 1968-1985. [doi: 10.1109/TCBB.2021.3081268](https://ieeexplore.ieee.org/abstract/document/9435097).</span>  
 #
-# **[zhao2024_ddi]** <span id="zhao2024_ddi">Zhao, Y., Yin, J., Zhang, L., Zhang, Y., and Chen, X. (2024). “Drug–drug interaction prediction: databases, web servers and computational models.” *Briefings in Bioinformatics*, vol. 25, no. 1, bbad445. [doi: 10.1093/bib/bbad445](https://academic.oup.com/bib/article/25/1/bbad445/7477803)</span>
+# **[zhao2024_ddi]** <span id="zhao2024_ddi">Zhao, Y., Yin, J., Zhang, L., Zhang, Y., and Chen, X. (2024). “Drug-drug interaction prediction: databases, web servers and computational models.” *Briefings in Bioinformatics*, vol. 25, no. 1, bbad445. [doi: 10.1093/bib/bbad445](https://academic.oup.com/bib/article/25/1/bbad445/7477803)</span>
 #
 # **[chchminer]** <span id="chchminer">Zitnik, M., Agrawal, M., and Leskovec, J. "BioSNAP: Network datasets: Drug-drug interaction network." Stanford Network Analysis Project (SNAP). [URL](https://snap.stanford.edu/biodata/datasets/10001/10001-ChCh-Miner.html).</span>  
 #
